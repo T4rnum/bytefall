@@ -6,6 +6,11 @@ interface ProjectState {
   activeFrameIndex: number
   activeLayerId: string
   
+  // Canvas Dimensions
+  width: number
+  height: number
+  setSize: (width: number, height: number) => void
+  
   // History
   history: Frame[][]
   historyIndex: number
@@ -60,6 +65,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   frames: initialFrames,
   activeFrameIndex: 0,
   activeLayerId: 'layer-1',
+  width: 50,
+  height: 50,
   
   history: [deepCloneFrames(initialFrames)],
   historyIndex: 0,
@@ -67,6 +74,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setActiveLayerId: (id) => set({ activeLayerId: id }),
 
   setActiveFrameIndex: (index) => set({ activeFrameIndex: index }),
+
+  setSize: (width, height) => set({ width, height }),
 
   addFrame: () => {
       const { frames, saveSnapshot } = get()

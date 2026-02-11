@@ -149,3 +149,15 @@
 .frameItem:hover .deleteBtn {
   opacity: 1;
 }
+
+.previewCanvas {
+  width: 90%;
+  flex: 1;
+  min-height: 20px;
+  object-fit: contain;
+  background-color: #000;
+  border: 1px solid var(--border-color);
+  image-rendering: pixelated;
+  margin-top: 4px;
+  max-height: 60px;
+}

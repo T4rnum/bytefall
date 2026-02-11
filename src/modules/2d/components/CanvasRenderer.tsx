@@ -5,8 +5,7 @@ import styles from './CanvasRenderer.module.scss'
 
 const GRID_SIZE = 20 // Pixel size of one grid cell
 const FONT_SIZE = 16
-const GRID_COLS = 50
-const GRID_ROWS = 50
+// Removed constants GRID_COLS and GRID_ROWS in favor of store values
 
 // Helper to interpolate colors
 function interpolateColor(color1: string, color2: string, factor: number) {
@@ -81,13 +80,12 @@ function getRectPoints(x0: number, y0: number, x1: number, y1: number) {
 
 function getCirclePoints(x0: number, y0: number, x1: number, y1: number) {
     const points: {x: number, y: number}[] = []
-    const radius = Math.round(Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2)))
-    let x = 0
-    let y = radius
-    let d = 3 - 2 * radius
+    const r = Math.round(Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2)))
+    let x = r
+    let y = 0
+    let radiusError = 1 - x
 
     const added = new Set<string>()
-
     const addPoint = (px: number, py: number) => {
         const key = `${px},${py}`
         if (!added.has(key)) {
@@ -96,25 +94,22 @@ function getCirclePoints(x0: number, y0: number, x1: number, y1: number) {
         }
     }
 
-    const addSymPoints = (cx: number, cy: number, x: number, y: number) => {
-        addPoint(cx + x, cy + y)
-        addPoint(cx - x, cy + y)
-        addPoint(cx + x, cy - y)
-        addPoint(cx - x, cy - y)
-        addPoint(cx + y, cy + x)
-        addPoint(cx - y, cy + x)
-        addPoint(cx + y, cy - x)
-        addPoint(cx - y, cy - x)
-    }
-
-    while (y >= x) {
-        addSymPoints(x0, y0, x, y)
-        x++
-        if (d > 0) {
-            y--
-            d = d + 4 * (x - y) + 10
+    while (x >= y) {
+        addPoint(x + x0, y + y0)
+        addPoint(y + x0, x + y0)
+        addPoint(-x + x0, y + y0)
+        addPoint(-y + x0, x + y0)
+        addPoint(-x + x0, -y + y0)
+        addPoint(-y + x0, -x + y0)
+        addPoint(x + x0, -y + y0)
+        addPoint(y + x0, -x + y0)
+        y++
+        
+        if (radiusError < 0) {
+            radiusError += 2 * y + 1
         } else {
-            d = d + 4 * x + 6
+            x--
+            radiusError += 2 * (y - x + 1)
         }
     }
     return points
@@ -125,6 +120,7 @@ export function CanvasRenderer() {
   const containerRef = useRef<HTMLDivElement>(null)
   
   const zoom = useEditorStore(state => state.zoom)
+  const setZoom = useEditorStore(state => state.setZoom)
   const pan = useEditorStore(state => state.pan)
   const setPan = useEditorStore(state => state.setPan)
   const activeTool = useEditorStore(state => state.activeTool)
@@ -142,7 +138,7 @@ export function CanvasRenderer() {
   const selectionTransform = useEditorStore(state => state.selectionTransform)
   const setSelectionTransform = useEditorStore(state => state.setSelectionTransform)
 
-  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, undo, redo } = useProjectStore()
+  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, undo, redo, width: projectWidth, height: projectHeight } = useProjectStore()
   
   const [isDragging, setIsDragging] = useState(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
@@ -456,6 +452,18 @@ export function CanvasRenderer() {
   }, [undo, redo, activeTool, selection, isMovingSelection, saveSnapshot, batchUpdateCells, frames, activeFrameIndex, activeLayerId, floatingSelection, hoverPos, setSelection, setClipboard])
 
 
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+        // e.preventDefault() // React SyntheticEvent doesn't support preventing default on wheel for zoom sometimes, handled in useEffect usually
+        // But for passive listeners it's complex.
+    }
+    // Simple zoom logic
+    const delta = -Math.sign(e.deltaY)
+    const factor = 0.1
+    const newZoom = Math.max(0.1, Math.min(10, zoom + delta * factor))
+    setZoom(newZoom)
+  }
+
   // Draw Function
   const draw = () => {
     const canvas = canvasRef.current
@@ -506,8 +514,8 @@ export function CanvasRenderer() {
   }
 
   const drawGrid = (ctx: CanvasRenderingContext2D) => {
-    const width = GRID_COLS * GRID_SIZE
-    const height = GRID_ROWS * GRID_SIZE
+    const width = projectWidth * GRID_SIZE
+    const height = projectHeight * GRID_SIZE
 
     // Draw Background of the grid area
     ctx.fillStyle = '#1a1918'
@@ -519,13 +527,13 @@ export function CanvasRenderer() {
 
     ctx.beginPath()
     // Vertical lines
-    for (let i = 0; i <= GRID_COLS; i++) {
+    for (let i = 0; i <= projectWidth; i++) {
       const x = -width / 2 + i * GRID_SIZE
       ctx.moveTo(x, -height / 2)
       ctx.lineTo(x, height / 2)
     }
     // Horizontal lines
-    for (let i = 0; i <= GRID_ROWS; i++) {
+    for (let i = 0; i <= projectHeight; i++) {
       const y = -height / 2 + i * GRID_SIZE
       ctx.moveTo(-width / 2, y)
       ctx.lineTo(width / 2, y)
@@ -689,10 +697,10 @@ export function CanvasRenderer() {
           const x1 = hoverPos.x
           const y1 = hoverPos.y
           
-          let minX = -GRID_COLS / 2
-          let maxX = GRID_COLS / 2 - 1
-          let minY = -GRID_ROWS / 2
-          let maxY = GRID_ROWS / 2 - 1
+          let minX = -projectWidth / 2
+          let maxX = projectWidth / 2 - 1
+          let minY = -projectHeight / 2
+          let maxY = projectHeight / 2 - 1
 
           if (selection) {
               minX = selection.x
@@ -765,8 +773,8 @@ export function CanvasRenderer() {
       
       points.forEach(p => {
           // Check bounds
-          if (p.x < -GRID_COLS / 2 || p.x >= GRID_COLS / 2 || 
-              p.y < -GRID_ROWS / 2 || p.y >= GRID_ROWS / 2) {
+          if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
+              p.y < -projectHeight / 2 || p.y >= projectHeight / 2) {
               return
           }
 
@@ -784,7 +792,7 @@ export function CanvasRenderer() {
 
   const drawCursor = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
     // Check if cursor is within grid bounds
-    if (x < -GRID_COLS / 2 || x >= GRID_COLS / 2 || y < -GRID_ROWS / 2 || y >= GRID_ROWS / 2) return
+    if (x < -projectWidth / 2 || x >= projectWidth / 2 || y < -projectHeight / 2 || y >= projectHeight / 2) return
 
     const px = x * GRID_SIZE
     const py = y * GRID_SIZE
@@ -819,7 +827,7 @@ export function CanvasRenderer() {
     const pos = getMousePos(e)
     
     // Check Bounds
-    const isOutOfBounds = pos.x < -GRID_COLS / 2 || pos.x >= GRID_COLS / 2 || pos.y < -GRID_ROWS / 2 || pos.y >= GRID_ROWS / 2
+    const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
     if (isOutOfBounds && activeTool !== 'select') return // Allow select to start outside? Maybe not.
 
     if (activeTool === 'select') {
@@ -916,7 +924,7 @@ export function CanvasRenderer() {
             return
         }
 
-        const isOutOfBounds = pos.x < -GRID_COLS / 2 || pos.x >= GRID_COLS / 2 || pos.y < -GRID_ROWS / 2 || pos.y >= GRID_ROWS / 2
+        const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
         if (isOutOfBounds) return
 
         if (activeTool === 'brush') {
@@ -945,10 +953,10 @@ export function CanvasRenderer() {
         
         // Ensure within grid?
         // Let's clip to grid
-        const clippedMinX = Math.max(minX, -GRID_COLS/2)
-        const clippedMaxX = Math.min(maxX, GRID_COLS/2 - 1)
-        const clippedMinY = Math.max(minY, -GRID_ROWS/2)
-        const clippedMaxY = Math.min(maxY, GRID_ROWS/2 - 1)
+        const clippedMinX = Math.max(minX, -projectWidth/2)
+        const clippedMaxX = Math.min(maxX, projectWidth/2 - 1)
+        const clippedMinY = Math.max(minY, -projectHeight/2)
+        const clippedMaxY = Math.min(maxY, projectHeight/2 - 1)
 
         if (clippedMinX <= clippedMaxX && clippedMinY <= clippedMaxY) {
             setSelection({
@@ -976,10 +984,10 @@ export function CanvasRenderer() {
              const x1 = hoverPos.x
              const y1 = hoverPos.y
              
-             let minX = -GRID_COLS / 2
-             let maxX = GRID_COLS / 2 - 1
-             let minY = -GRID_ROWS / 2
-             let maxY = GRID_ROWS / 2 - 1
+             let minX = -projectWidth / 2
+             let maxX = projectWidth / 2 - 1
+             let minY = -projectHeight / 2
+             let maxY = projectHeight / 2 - 1
 
              if (selection) {
                  minX = selection.x
@@ -1039,8 +1047,8 @@ export function CanvasRenderer() {
             }
 
             points.forEach(p => {
-                if (p.x < -GRID_COLS / 2 || p.x >= GRID_COLS / 2 || 
-                    p.y < -GRID_ROWS / 2 || p.y >= GRID_ROWS / 2) return
+                if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
+                    p.y < -projectHeight / 2 || p.y >= projectHeight / 2) return
                 
                 updates.push({
                     x: p.x,
@@ -1083,7 +1091,12 @@ export function CanvasRenderer() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
       />
+      <div className={styles.overlay}>
+        {hoverPos && <span>X: {hoverPos.x} Y: {hoverPos.y}</span>}
+        <span style={{ marginLeft: 10 }}>Zoom: {Math.round(zoom * 100)}%</span>
+      </div>
     </div>
   )
 }

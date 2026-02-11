@@ -1,9 +1,55 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
+import { Frame } from '../../modules/2d/types'
 import { Play, Pause, Plus, Copy, Ghost } from 'lucide-react'
 import styles from './TimelinePanel.module.scss'
 import clsx from 'clsx'
+
+// Memoized preview to prevent unnecessary redraws
+const FramePreview = memo(({ frame, width, height }: { frame: Frame, width: number, height: number }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Clear
+    ctx.fillStyle = '#1a1918'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    ctx.save()
+    // Transform coordinate system to match grid (0,0 at center)
+    // Canvas (0,0) is top-left.
+    // We want grid (0,0) to be at canvas (width/2, height/2).
+    ctx.translate(Math.floor(width / 2), Math.floor(height / 2))
+
+    // Draw frame content
+    frame.layers.forEach((layer: any) => {
+         if (!layer.visible) return
+         layer.data.forEach((cell: any, key: string) => {
+             const [x, y] = key.split(',').map(Number)
+             
+             if (cell.bgColor) {
+                 ctx.fillStyle = cell.bgColor
+                 ctx.fillRect(x, y, 1, 1)
+             }
+             
+             if (cell.char) {
+                 ctx.fillStyle = cell.color
+                 ctx.fillRect(x, y, 1, 1)
+             }
+         })
+    })
+    
+    ctx.restore()
+
+  }, [frame, width, height])
+
+  return <canvas ref={canvasRef} className={styles.previewCanvas} width={width} height={height} />
+})
 
 export const TimelinePanel = () => {
   const { 
@@ -12,7 +58,9 @@ export const TimelinePanel = () => {
     setActiveFrameIndex, 
     addFrame, 
     duplicateFrame, 
-    deleteFrame 
+    deleteFrame,
+    width,
+    height
   } = useProjectStore()
 
   const { onionSkinEnabled, setOnionSkinEnabled } = useEditorStore()
@@ -97,6 +145,8 @@ export const TimelinePanel = () => {
           >
             <span className={styles.frameNumber}>{index + 1}</span>
             
+            <FramePreview frame={frame} width={width} height={height} />
+
             {frames.length > 1 && (
                 <button 
                     className={styles.deleteBtn}

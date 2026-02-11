@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { MainLayout } from './components/Layout/MainLayout'
 import { ToolsPanel } from './components/Panels/ToolsPanel'
 import { LayersPanel } from './components/Panels/LayersPanel'
+import { ProjectPanel } from './components/Panels/ProjectPanel'
 import { TimelinePanel } from './components/Panels/TimelinePanel'
 import { TabbedPanel } from './components/Common/TabbedPanel'
 import { CanvasRenderer } from './modules/2d/components/CanvasRenderer'
@@ -169,7 +170,10 @@ function App() {
         <MainLayout 
           leftPanel={<TabbedPanel tabs={[{ id: 'tools', title: 'TOOLS', content: <ToolsPanel /> }]} />}
           centerPanel={activeTab === '2D' ? <CanvasRenderer /> : <SceneRenderer />}
-          rightPanel={<TabbedPanel tabs={[{ id: 'layers', title: 'LAYERS', content: <LayersPanel /> }]} />}
+          rightPanel={<TabbedPanel tabs={[
+            { id: 'layers', title: 'LAYERS', content: <LayersPanel /> },
+            { id: 'project', title: 'PROJECT', content: <ProjectPanel /> }
+          ]} />}
           bottomPanel={<TabbedPanel tabs={[{ id: 'timeline', title: 'TIMELINE', content: <TimelinePanel /> }]} />}
         />
       </div>

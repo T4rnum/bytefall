@@ -788,8 +788,10 @@ export function CanvasRenderer() {
           ctx.fillRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
           
           // Draw preview char
-          ctx.fillStyle = brushColor
-          ctx.fillText(brushChar, px, py + 2)
+          const pChar = isRightClick.current ? secondaryChar : brushChar
+          const pColor = isRightClick.current ? secondaryColor : brushColor
+          ctx.fillStyle = pColor
+          ctx.fillText(pChar, px, py + 2)
       })
   }
 
@@ -893,7 +895,15 @@ export function CanvasRenderer() {
         const color = isRightClick.current ? secondaryColor : brushColor
 
         if (activeTool === 'brush') {
-            setCell(pos.x, pos.y, { char, color })
+            const frame = frames[activeFrameIndex]
+            const layer = frame?.layers.find(l => l.id === activeLayerId)
+            const current = layer?.data.get(`${pos.x},${pos.y}`)
+            
+            setCell(pos.x, pos.y, { 
+                char, 
+                color, 
+                bgColor: current?.bgColor || '' 
+            })
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
         } else if (activeTool === 'fill') {
@@ -934,14 +944,29 @@ export function CanvasRenderer() {
         if (activeTool === 'brush') {
             const char = isRightClick.current ? secondaryChar : brushChar
             const color = isRightClick.current ? secondaryColor : brushColor
-            setCell(pos.x, pos.y, { char, color })
+            
+            const frame = frames[activeFrameIndex]
+            const layer = frame?.layers.find(l => l.id === activeLayerId)
+            const current = layer?.data.get(`${pos.x},${pos.y}`)
+
+            setCell(pos.x, pos.y, { 
+                char, 
+                color,
+                bgColor: current?.bgColor || ''
+            })
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
         }
     }
   }
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent) => {
+    // If buttons are still pressed (e.g. switching from L+R to just L), don't stop dragging
+    if (e.buttons !== 0) {
+        isRightClick.current = (e.buttons & 2) === 2
+        return
+    }
+
     setIsDragging(false)
     
     if (isMovingSelection) {
@@ -1088,7 +1113,7 @@ export function CanvasRenderer() {
       cancelAnimationFrame(animationFrameId)
     }
   }, [
-      zoom, pan, activeTool, brushChar, brushColor, onionSkinEnabled, 
+      zoom, pan, activeTool, brushChar, brushColor, secondaryChar, secondaryColor, onionSkinEnabled, 
       frames, activeFrameIndex, hoverPos, startPos, isDragging, 
       selection, floatingSelection, isMovingSelection, gradientType, gradientColorStart, gradientColorEnd
     ])

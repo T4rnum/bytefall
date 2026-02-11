@@ -24,6 +24,10 @@ export const ToolsPanel = () => {
     setBrushChar,
     brushColor,
     setBrushColor,
+    secondaryChar,
+    setSecondaryChar,
+    secondaryColor,
+    setSecondaryColor,
     gradientType,
     setGradientType,
     gradientColorStart,
@@ -66,6 +70,26 @@ export const ToolsPanel = () => {
                 className={styles.colorInput}
                 value={brushColor}
                 onChange={(e) => setBrushColor(e.target.value)}
+            />
+            </div>
+            
+            <div className={styles.settingRow} style={{ marginTop: '10px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+            <span>RMB CHAR</span>
+            <input 
+                type="text" 
+                className={styles.charInput}
+                value={secondaryChar}
+                onChange={(e) => setSecondaryChar(e.target.value.slice(0, 1))}
+                maxLength={1}
+            />
+            </div>
+            <div className={styles.settingRow}>
+            <span>RMB COL</span>
+            <input 
+                type="color" 
+                className={styles.colorInput}
+                value={secondaryColor}
+                onChange={(e) => setSecondaryColor(e.target.value)}
             />
             </div>
             {activeTool === 'gradient' && (

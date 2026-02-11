@@ -24,6 +24,11 @@ interface EditorState {
   canvasBgColor: string | null // null = transparent
   exportBgColor: string | null // null = transparent
 
+  // View Settings
+  showGrid: boolean
+  showCenterGuide: boolean
+  workspaceColor: string
+
   // Selection State
   selection: {x: number, y: number, w: number, h: number} | null
   selectionTransform: 'rotate' | 'flipH' | 'flipV' | null
@@ -84,4 +89,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   setGradientColors: (start, end) => set({ gradientColorStart: start, gradientColorEnd: end }),
   setCanvasBgColor: (canvasBgColor) => set({ canvasBgColor }),
   setExportBgColor: (exportBgColor) => set({ exportBgColor }),
+  setShowGrid: (showGrid) => set({ showGrid }),
+  setShowCenterGuide: (showCenterGuide) => set({ showCenterGuide }),
+  setWorkspaceColor: (workspaceColor) => set({ workspaceColor }),
 }))

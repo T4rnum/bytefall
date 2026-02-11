@@ -6,16 +6,16 @@ import { CharPicker } from '../UI/CharPicker'
 import styles from './Panels.module.scss'
 import clsx from 'clsx'
 
-const TOOLS: { id: ToolType; icon: React.ElementType; label: string }[] = [
-  { id: 'select', icon: MousePointer2, label: 'Select' },
-  { id: 'brush', icon: Paintbrush, label: 'Brush' },
-  { id: 'eraser', icon: Eraser, label: 'Eraser' },
-  { id: 'fill', icon: PaintBucket, label: 'Fill' },
-  { id: 'gradient', icon: ArrowUpRight, label: 'Gradient' },
-  { id: 'eyedropper', icon: Pipette, label: 'Eyedropper' },
-  { id: 'line', icon: Minus, label: 'Line' },
-  { id: 'rectangle', icon: Square, label: 'Rectangle' },
-  { id: 'circle', icon: Circle, label: 'Circle' },
+const TOOLS: { id: ToolType; icon: React.ElementType; label: string; hotkey: string }[] = [
+  { id: 'select', icon: MousePointer2, label: 'Select', hotkey: 'S' },
+  { id: 'brush', icon: Paintbrush, label: 'Brush', hotkey: 'B' },
+  { id: 'eraser', icon: Eraser, label: 'Eraser', hotkey: 'E' },
+  { id: 'fill', icon: PaintBucket, label: 'Fill', hotkey: 'G' },
+  { id: 'gradient', icon: ArrowUpRight, label: 'Gradient', hotkey: 'H' }, // Changed hotkey to H to avoid conflict if needed
+  { id: 'eyedropper', icon: Pipette, label: 'Eyedropper', hotkey: 'I' },
+  { id: 'line', icon: Minus, label: 'Line', hotkey: 'L' },
+  { id: 'rectangle', icon: Square, label: 'Rectangle', hotkey: 'R' },
+  { id: 'circle', icon: Circle, label: 'Circle', hotkey: 'C' },
 ]
 
 interface CharInputProps {
@@ -156,9 +156,20 @@ export const ToolsPanel = () => {
                 key={tool.id}
                 className={clsx(styles.toolBtn, activeTool === tool.id && styles.active)}
                 onClick={() => setActiveTool(tool.id)}
-                title={tool.label}
+                title={`${tool.label} (${tool.hotkey})`}
+                style={{ position: 'relative' }}
             >
                 <tool.icon size={20} />
+                <span style={{ 
+                    position: 'absolute', 
+                    bottom: '2px', 
+                    right: '2px', 
+                    fontSize: '8px', 
+                    opacity: 0.6,
+                    pointerEvents: 'none'
+                }}>
+                    {tool.hotkey}
+                </span>
             </button>
             ))}
         </div>

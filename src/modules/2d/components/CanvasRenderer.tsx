@@ -133,6 +133,9 @@ export function CanvasRenderer() {
   const gradientColorStart = useEditorStore(state => state.gradientColorStart)
   const gradientColorEnd = useEditorStore(state => state.gradientColorEnd)
   const canvasBgColor = useEditorStore(state => state.canvasBgColor)
+  const showGrid = useEditorStore(state => state.showGrid)
+  const showCenterGuide = useEditorStore(state => state.showCenterGuide)
+  const workspaceColor = useEditorStore(state => state.workspaceColor)
   const setClipboard = useEditorStore(state => state.setClipboard)
   
   // Selection from Store
@@ -460,16 +463,17 @@ export function CanvasRenderer() {
                 useEditorStore.getState().setSecondaryChar('')
             }
         } else {
-            // Tool Shortcuts
-            switch(e.key.toLowerCase()) {
-                case 'b': useEditorStore.getState().setActiveTool('brush'); break;
-                case 'e': useEditorStore.getState().setActiveTool('eraser'); break;
-                case 'g': useEditorStore.getState().setActiveTool('fill'); break;
-                case 'l': useEditorStore.getState().setActiveTool('line'); break;
-                case 'r': useEditorStore.getState().setActiveTool('rectangle'); break;
-                case 'c': useEditorStore.getState().setActiveTool('circle'); break;
-                case 'i': useEditorStore.getState().setActiveTool('eyedropper'); break;
-                case 's': useEditorStore.getState().setActiveTool('select'); break;
+            // Tool Shortcuts - Using e.code for layout-agnostic hotkeys
+            switch(e.code) {
+                case 'KeyB': useEditorStore.getState().setActiveTool('brush'); break;
+                case 'KeyE': useEditorStore.getState().setActiveTool('eraser'); break;
+                case 'KeyG': useEditorStore.getState().setActiveTool('fill'); break;
+                case 'KeyH': useEditorStore.getState().setActiveTool('gradient'); break;
+                case 'KeyL': useEditorStore.getState().setActiveTool('line'); break;
+                case 'KeyR': useEditorStore.getState().setActiveTool('rectangle'); break;
+                case 'KeyC': useEditorStore.getState().setActiveTool('circle'); break;
+                case 'KeyI': useEditorStore.getState().setActiveTool('eyedropper'); break;
+                case 'KeyS': useEditorStore.getState().setActiveTool('select'); break;
             }
         }
     }
@@ -540,6 +544,19 @@ export function CanvasRenderer() {
     }
 
     ctx.restore()
+  }
+
+  const drawCenterGuide = (ctx: CanvasRenderingContext2D) => {
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)'
+    ctx.lineWidth = 1 / zoom
+    ctx.beginPath()
+    // Vertical
+    ctx.moveTo(0, -projectHeight * GRID_SIZE / 2)
+    ctx.lineTo(0, projectHeight * GRID_SIZE / 2)
+    // Horizontal
+    ctx.moveTo(-projectWidth * GRID_SIZE / 2, 0)
+    ctx.lineTo(projectWidth * GRID_SIZE / 2, 0)
+    ctx.stroke()
   }
 
   const drawGrid = (ctx: CanvasRenderingContext2D) => {

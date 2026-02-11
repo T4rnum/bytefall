@@ -6,7 +6,13 @@ import styles from './Panels.module.scss'
 
 export const ProjectPanel = () => {
     const { width: projectWidth, height: projectHeight, setSize } = useProjectStore()
-    const { canvasBgColor, setCanvasBgColor, exportBgColor, setExportBgColor } = useEditorStore()
+    const { 
+        canvasBgColor, setCanvasBgColor, 
+        exportBgColor, setExportBgColor,
+        showGrid, setShowGrid,
+        showCenterGuide, setShowCenterGuide,
+        workspaceColor, setWorkspaceColor
+    } = useEditorStore()
     const [width, setWidth] = useState(projectWidth)
     const [height, setHeight] = useState(projectHeight)
 
@@ -97,6 +103,33 @@ export const ProjectPanel = () => {
                              />
                          )}
                     </div>
+                </div>
+
+                <div className={styles.settingRow} style={{ marginTop: '15px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+                    <label>WORKSPACE</label>
+                    <input 
+                        type="color" 
+                        value={workspaceColor}
+                        onChange={(e) => setWorkspaceColor(e.target.value)}
+                    />
+                </div>
+
+                <div className={styles.settingRow}>
+                    <label>SHOW GRID</label>
+                    <input 
+                        type="checkbox" 
+                        checked={showGrid}
+                        onChange={(e) => setShowGrid(e.target.checked)}
+                    />
+                </div>
+
+                <div className={styles.settingRow}>
+                    <label>CENTER GUIDE</label>
+                    <input 
+                        type="checkbox" 
+                        checked={showCenterGuide}
+                        onChange={(e) => setShowCenterGuide(e.target.checked)}
+                    />
                 </div>
             </div>
         </div>

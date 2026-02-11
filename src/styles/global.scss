@@ -47,3 +47,60 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #777;
 }
+
+/* Custom Pixel Checkbox */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--bg-dark);
+  border: 2px solid var(--border-color);
+  position: relative;
+  cursor: pointer;
+  image-rendering: pixelated;
+  vertical-align: middle;
+  margin: 0;
+  
+  &:checked {
+    border-color: var(--accent);
+    &::after {
+      content: '✔';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--accent);
+      font-size: 8px;
+      font-family: var(--font-main);
+    }
+  }
+
+  &:hover {
+    border-color: #888;
+  }
+}
+
+/* Custom Color Input */
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid var(--border-color);
+  background: none;
+  cursor: pointer;
+  image-rendering: pixelated;
+
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  &::-webkit-color-swatch {
+    border: none;
+  }
+
+  &:hover {
+    border-color: var(--accent);
+  }
+}

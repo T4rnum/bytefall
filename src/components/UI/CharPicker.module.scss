@@ -1,0 +1,65 @@
+.pickerContainer {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background-color: #1a1918;
+  border: 1px solid #444;
+  padding: 8px;
+  width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+
+  /* Custom Scrollbar */
+  &::-webkit-scrollbar {
+    width: 0px; /* Hidden as per project preference */
+    background: transparent;
+  }
+}
+
+.charBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2a2928;
+  border: 1px solid #333;
+  color: #ccc;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  border-radius: 2px;
+  transition: all 0.1s;
+
+  &:hover {
+    background: #444;
+    color: #fff;
+    border-color: #666;
+    transform: scale(1.1);
+  }
+
+  &.active {
+    background: #007acc;
+    color: #fff;
+    border-color: #0099ff;
+  }
+}
+
+.categoryLabel {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: #666;
+  margin: 8px 0 4px;
+  text-transform: uppercase;
+  font-family: "Press Start 2P", cursive;
+  
+  &:first-child {
+    margin-top: 0;
+  }
+}

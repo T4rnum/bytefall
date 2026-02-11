@@ -427,26 +427,32 @@ export function CanvasRenderer() {
         } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
             e.preventDefault()
             redo()
-        } else if ((e.key === 'Delete' || e.key === 'Backspace') && activeTool === 'select' && selection && !isMovingSelection) {
-            // Delete selection content
-            e.preventDefault()
-            
-            if (floatingSelection) {
-                setFloatingSelection(null)
-            } else {
-                saveSnapshot()
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (activeTool === 'select' && selection && !isMovingSelection) {
+                // Delete selection content
+                e.preventDefault()
                 
-                const updates = []
-                for(let y = 0; y < selection.h; y++) {
-                    for(let x = 0; x < selection.w; x++) {
-                        updates.push({
-                            x: selection.x + x,
-                            y: selection.y + y,
-                            data: { char: '', color: '' }
-                        })
+                if (floatingSelection) {
+                    setFloatingSelection(null)
+                } else {
+                    saveSnapshot()
+                    
+                    const updates = []
+                    for(let y = 0; y < selection.h; y++) {
+                        for(let x = 0; x < selection.w; x++) {
+                            updates.push({
+                                x: selection.x + x,
+                                y: selection.y + y,
+                                data: { char: '', color: '' }
+                            })
+                        }
                     }
+                    batchUpdateCells(updates)
                 }
-                batchUpdateCells(updates)
+            } else if (activeTool === 'brush') {
+                // Set brush char to empty (Eraser analog)
+                // "Give ability to draw with emptiness"
+                useEditorStore.getState().setBrushChar('')
             }
         }
     }
@@ -621,7 +627,15 @@ export function CanvasRenderer() {
         if (cell.char) {
           ctx.fillStyle = cell.color
           ctx.globalAlpha = layer.opacity
-          ctx.fillText(cell.char, px, py + 2) // +2 for visual alignment
+          
+          if (cell.char === ' ') {
+             // Draw Space Indicator (small dot)
+             const size = 2 / zoom
+             ctx.fillRect(px - size/2, py - size/2, size, size)
+          } else {
+             ctx.fillText(cell.char, px, py + 2) // +2 for visual alignment
+          }
+          
           ctx.globalAlpha = 1.0
         }
       }
@@ -649,7 +663,12 @@ export function CanvasRenderer() {
 
           if (item.data.char) {
               ctx.fillStyle = item.data.color
-              ctx.fillText(item.data.char, px, py + 2)
+              if (item.data.char === ' ') {
+                 const size = 2 / zoom
+                 ctx.fillRect(px - size/2, py - size/2, size, size)
+              } else {
+                 ctx.fillText(item.data.char, px, py + 2)
+              }
           }
       })
   }

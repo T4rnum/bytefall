@@ -58,20 +58,51 @@
   gap: 12px;
 }
 
-.charInput {
-  width: 40px;
+.charInputContainer {
+  flex: 1;
   height: 40px;
+  position: relative;
+}
+
+.charDisplay {
+  width: 100%;
+  height: 100%;
   background-color: var(--bg-dark);
   border: 2px solid var(--border-color);
   color: var(--text-primary);
-  font-family: 'Press Start 2P', monospace;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
   font-size: 14px;
-  cursor: text;
-  
-  &:focus {
-    outline: none;
+  user-select: none;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--text-secondary);
+  }
+
+  &.active {
     border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+}
+
+.charInput {
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-dark);
+  border: 2px solid var(--accent);
+  color: var(--text-primary);
+  text-align: center;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  padding: 0;
+  outline: none;
+
+  &.editing {
+    background-color: #111;
   }
 }
 

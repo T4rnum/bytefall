@@ -21,13 +21,18 @@ interface EditorState {
   gradientColorEnd: string
   
   // Background Settings
-  canvasBgColor: string | null // null = transparent
+  canvasBgColor: string // The actual canvas/project background
   exportBgColor: string | null // null = transparent
 
   // View Settings
   showGrid: boolean
   showCenterGuide: boolean
-  workspaceColor: string
+  workspaceColor: string // The color of the area OUTSIDE the canvas
+
+  // Palette
+  palette: string[]
+  setPalette: (colors: string[]) => void
+  addColorToPalette: (color: string) => void
 
   // Selection State
   selection: {x: number, y: number, w: number, h: number} | null
@@ -50,8 +55,11 @@ interface EditorState {
   setOnionSkinEnabled: (enabled: boolean) => void
   setGradientType: (type: 'linear' | 'radial') => void
   setGradientColors: (start: string, end: string) => void
-  setCanvasBgColor: (color: string | null) => void
+  setCanvasBgColor: (color: string) => void
   setExportBgColor: (color: string | null) => void
+  setShowGrid: (show: boolean) => void
+  setShowCenterGuide: (show: boolean) => void
+  setWorkspaceColor: (color: string) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -67,8 +75,17 @@ export const useEditorStore = create<EditorState>((set) => ({
   gradientType: 'linear',
   gradientColorStart: '#ffffff',
   gradientColorEnd: '#000000',
-  canvasBgColor: '#111111',
+  canvasBgColor: '#1a1918',
   exportBgColor: null,
+  showGrid: true,
+  showCenterGuide: false,
+  workspaceColor: '#111111',
+  palette: [
+    '#000000', '#1D2B53', '#7E2553', '#008751',
+    '#AB5236', '#5F574F', '#C2C3C7', '#FFF1E8',
+    '#FF004D', '#FFA300', '#FFEC27', '#00E436',
+    '#29ADFF', '#83769C', '#FF77A8', '#FFCCAA'
+  ], // PICO-8 Palette is a great default for pixel art
   selection: null,
   selectionTransform: null,
   clipboard: null,
@@ -92,4 +109,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowCenterGuide: (showCenterGuide) => set({ showCenterGuide }),
   setWorkspaceColor: (workspaceColor) => set({ workspaceColor }),
+  setPalette: (palette) => set({ palette }),
+  addColorToPalette: (color) => set((state) => ({ 
+      palette: state.palette.includes(color) ? state.palette : [...state.palette, color] 
+  })),
 }))

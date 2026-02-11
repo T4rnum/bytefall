@@ -19,7 +19,10 @@ interface ProjectState {
   setCell: (x: number, y: number, data: CellData) => void
   batchUpdateCells: (updates: { x: number; y: number; data: CellData }[]) => void
   addLayer: (name: string) => void
+  deleteLayer: (id: string) => void
+  renameLayer: (id: string, name: string) => void
   toggleLayerVisibility: (id: string) => void
+  setLayerOpacity: (id: string, opacity: number) => void
   setActiveLayerId: (id: string) => void
   
   // Frame Actions
@@ -233,6 +236,42 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
     
     currentLayer.data = newData
+    set({ frames: newFrames })
+  },
+
+  deleteLayer: (id) => {
+    const { frames, activeLayerId, saveSnapshot } = get()
+    // Don't delete last layer
+    if (frames[0].layers.length <= 1) return
+
+    saveSnapshot()
+    const newFrames = frames.map(frame => ({
+      ...frame,
+      layers: frame.layers.filter(l => l.id !== id)
+    }))
+
+    const newState: Partial<ProjectState> = { frames: newFrames }
+    if (activeLayerId === id) {
+      newState.activeLayerId = newFrames[0].layers[0].id
+    }
+    set(newState)
+  },
+
+  renameLayer: (id, name) => {
+    const { frames } = get()
+    const newFrames = frames.map(frame => ({
+      ...frame,
+      layers: frame.layers.map(l => l.id === id ? { ...l, name } : l)
+    }))
+    set({ frames: newFrames })
+  },
+
+  setLayerOpacity: (id, opacity) => {
+    const { frames } = get()
+    const newFrames = frames.map(frame => ({
+      ...frame,
+      layers: frame.layers.map(l => l.id === id ? { ...l, opacity } : l)
+    }))
     set({ frames: newFrames })
   },
 

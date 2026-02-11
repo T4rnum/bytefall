@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
 import styles from './CanvasRenderer.module.scss'
@@ -436,13 +436,14 @@ export function CanvasRenderer() {
         } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
             e.preventDefault()
             redo()
-        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        } else if (e.code === 'Delete' || e.code === 'Backspace') {
             if (activeTool === 'select' && selection && !isMovingSelection) {
                 // Delete selection content
                 e.preventDefault()
                 
                 if (floatingSelection) {
                     setFloatingSelection(null)
+                    setSelection(null)
                 } else {
                     saveSnapshot()
                     
@@ -457,6 +458,7 @@ export function CanvasRenderer() {
                         }
                     }
                     batchUpdateCells(updates)
+                    setSelection(null)
                 }
             } else if (activeTool === 'brush') {
                 // Set secondary char to empty (Eraser analog for RMB)
@@ -494,27 +496,94 @@ export function CanvasRenderer() {
     setZoom(newZoom)
   }
 
+  const floodFill = (startX: number, startY: number, newChar: string, newColor: string) => {
+    const frame = frames[activeFrameIndex]
+    const layer = frame?.layers.find(l => l.id === activeLayerId)
+    if (!layer) return
+
+    const startKey = `${startX},${startY}`
+    const startCell = layer.data.get(startKey)
+    const targetChar = startCell?.char || ''
+    const targetColor = startCell?.color || ''
+
+    if (targetChar === newChar && targetColor === newColor) return
+
+    const queue: [number, number][] = [[startX, startY]]
+    const visited = new Set([startKey])
+    const updates: {x: number, y: number, data: any}[] = []
+
+    while (queue.length > 0) {
+        const [x, y] = queue.shift()!
+        const key = `${x},${y}`
+        const current = layer.data.get(key)
+        
+        updates.push({ 
+            x, y, 
+            data: { 
+                char: newChar, 
+                color: newColor,
+                bgColor: current?.bgColor || ''
+            } 
+        })
+
+        const neighbors = [
+            [x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]
+        ]
+
+        for (const [nx, ny] of neighbors) {
+            const key = `${nx},${ny}`
+            if (nx < -projectWidth / 2 || nx >= projectWidth / 2 || ny < -projectHeight / 2 || ny >= projectHeight / 2) continue
+            if (visited.has(key)) continue
+
+            const cell = layer.data.get(key)
+            const char = cell?.char || ''
+            const color = cell?.color || ''
+
+            if (char === targetChar && color === targetColor) {
+                visited.add(key)
+                queue.push([nx, ny] as [number, number])
+            }
+        }
+    }
+
+    saveSnapshot()
+    batchUpdateCells(updates)
+  }
+
   // Draw Function
-  const draw = () => {
+  const draw = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Clear canvas
+    // Clear canvas (the whole window area)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    if (canvasBgColor) {
-        ctx.fillStyle = canvasBgColor
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-    }
+    
+    // Fill the background of the entire viewport with workspace color
+    ctx.fillStyle = workspaceColor
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     // Apply transformation
     ctx.save()
     ctx.translate(pan.x + canvas.width / 2, pan.y + canvas.height / 2)
     ctx.scale(zoom, zoom)
 
+    // Draw the actual Canvas/Project area
+    const width = projectWidth * GRID_SIZE
+    const height = projectHeight * GRID_SIZE
+    ctx.fillStyle = canvasBgColor
+    ctx.fillRect(-width / 2, -height / 2, width, height)
+
     // Draw Grid and Content
-    drawGrid(ctx)
+    if (showGrid) {
+        drawGrid(ctx)
+    }
+    
+    // Draw Center Guide
+    if (showCenterGuide) {
+        drawCenterGuide(ctx)
+    }
     
     // Draw Onion Skin (Previous Frame)
     if (onionSkinEnabled && activeFrameIndex > 0) {
@@ -544,11 +613,24 @@ export function CanvasRenderer() {
     }
 
     ctx.restore()
-  }
+  }, [pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor])
+
+    // Request Animation Frame for smooth rendering
+    useEffect(() => {
+      let animationFrameId: number
+  
+      const render = () => {
+        draw()
+        animationFrameId = requestAnimationFrame(render)
+      }
+      
+      render()
+      return () => cancelAnimationFrame(animationFrameId)
+    }, [draw])
 
   const drawCenterGuide = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)'
-    ctx.lineWidth = 1 / zoom
+    ctx.strokeStyle = '#ffcc00'
+    ctx.lineWidth = 2 / zoom
     ctx.beginPath()
     // Vertical
     ctx.moveTo(0, -projectHeight * GRID_SIZE / 2)
@@ -562,10 +644,6 @@ export function CanvasRenderer() {
   const drawGrid = (ctx: CanvasRenderingContext2D) => {
     const width = projectWidth * GRID_SIZE
     const height = projectHeight * GRID_SIZE
-
-    // Draw Background of the grid area
-    ctx.fillStyle = '#1a1918'
-    ctx.fillRect(-width / 2, -height / 2, width, height)
 
     // Draw Lines
     ctx.strokeStyle = '#333'
@@ -584,16 +662,6 @@ export function CanvasRenderer() {
       ctx.moveTo(-width / 2, y)
       ctx.lineTo(width / 2, y)
     }
-    ctx.stroke()
-
-    // Draw Center Marker
-    ctx.strokeStyle = '#ffcc00'
-    ctx.lineWidth = 2 / zoom
-    ctx.beginPath()
-    ctx.moveTo(-10, 0)
-    ctx.lineTo(10, 0)
-    ctx.moveTo(0, -10)
-    ctx.lineTo(0, 10)
     ctx.stroke()
   }
 
@@ -852,15 +920,31 @@ export function CanvasRenderer() {
   }
 
   const drawCursor = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
-    // Check if cursor is within grid bounds
-    if (x < -projectWidth / 2 || x >= projectWidth / 2 || y < -projectHeight / 2 || y >= projectHeight / 2) return
+    // Only draw cursor if inside project bounds or using select tool
+    const isOutOfBounds = x < -projectWidth / 2 || x >= projectWidth / 2 || y < -projectHeight / 2 || y >= projectHeight / 2
+    if (isOutOfBounds && activeTool !== 'select') return
 
     const px = x * GRID_SIZE
     const py = y * GRID_SIZE
-
-    ctx.strokeStyle = '#fff'
-    ctx.lineWidth = 2 / zoom
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
+    ctx.lineWidth = 1 / zoom
     ctx.strokeRect(px, py, GRID_SIZE, GRID_SIZE)
+    
+    // If drawing, show preview of what will be placed
+    if (!isDragging && activeTool === 'brush') {
+        ctx.save()
+        ctx.globalAlpha = 0.5
+        const char = brushChar
+        const color = brushColor
+        
+        ctx.font = `${FONT_SIZE}px "Press Start 2P"`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillStyle = color
+        ctx.fillText(char, px + GRID_SIZE / 2, py + GRID_SIZE / 2 + 2)
+        ctx.restore()
+    }
   }
 
   // Mouse Handlers
@@ -963,10 +1047,22 @@ export function CanvasRenderer() {
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
         } else if (activeTool === 'fill') {
-            // Flood Fill placeholder
-            saveSnapshot()
+            const char = isRightClick.current ? secondaryChar : brushChar
+            const color = isRightClick.current ? secondaryColor : brushColor
+            floodFill(pos.x, pos.y, char, color)
         } else if (activeTool === 'eyedropper') {
-             // ...
+            const frame = frames[activeFrameIndex]
+            const layer = frame?.layers.find(l => l.id === activeLayerId)
+            const cell = layer?.data.get(`${pos.x},${pos.y}`)
+            if (cell) {
+                if (isRightClick.current) {
+                    useEditorStore.getState().setSecondaryChar(cell.char)
+                    useEditorStore.getState().setSecondaryColor(cell.color || '#ffffff')
+                } else {
+                    useEditorStore.getState().setBrushChar(cell.char)
+                    useEditorStore.getState().setBrushColor(cell.color || '#ffffff')
+                }
+            }
         }
     }
   }
@@ -1012,6 +1108,19 @@ export function CanvasRenderer() {
             })
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
+        } else if (activeTool === 'eyedropper') {
+            const frame = frames[activeFrameIndex]
+            const layer = frame?.layers.find(l => l.id === activeLayerId)
+            const cell = layer?.data.get(`${pos.x},${pos.y}`)
+            if (cell) {
+                if (isRightClick.current) {
+                    useEditorStore.getState().setSecondaryChar(cell.char)
+                    useEditorStore.getState().setSecondaryColor(cell.color || '#ffffff')
+                } else {
+                    useEditorStore.getState().setBrushChar(cell.char)
+                    useEditorStore.getState().setBrushColor(cell.color || '#ffffff')
+                }
+            }
         }
     }
   }
@@ -1116,11 +1225,15 @@ export function CanvasRenderer() {
                     factor = Math.max(0, Math.min(1, factor))
                     const gradColor = interpolateColor(gradientColorStart, gradientColorEnd, factor)
                     
+                    const frame = frames[activeFrameIndex]
+                    const layer = frame?.layers.find(l => l.id === activeLayerId)
+                    const current = layer?.data.get(`${x},${y}`)
+
                     updates.push({
                          x, y,
                          data: useBg 
-                             ? { char: '', color: '', bgColor: gradColor } 
-                             : { char: char, color: gradColor, bgColor: '' }
+                             ? { char: current?.char || '', color: current?.color || '', bgColor: gradColor } 
+                             : { char: char, color: gradColor, bgColor: current?.bgColor || '' }
                      })
                 }
              }
@@ -1136,14 +1249,22 @@ export function CanvasRenderer() {
                 points = getCirclePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
             }
 
+            const frame = frames[activeFrameIndex]
+            const layer = frame?.layers.find(l => l.id === activeLayerId)
+
             points.forEach(p => {
                 if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
                     p.y < -projectHeight / 2 || p.y >= projectHeight / 2) return
                 
+                const current = layer?.data.get(`${p.x},${p.y}`)
                 updates.push({
                     x: p.x,
                     y: p.y,
-                    data: { char: char, color: color }
+                    data: { 
+                        char: char, 
+                        color: color,
+                        bgColor: current?.bgColor || ''
+                    }
                 })
             })
         }

@@ -31,19 +31,27 @@ const CHAR_GROUPS = [
   }
 ]
 
-export const CharPicker: React.FC<CharPickerProps> = ({ onSelect, activeChar, onClose }) => {
+export const CharPicker: React.FC<CharPickerProps> = ({ onSelect, activeChar }) => {
   // Close when clicking outside logic should be handled by parent or overlay
   // But for now, we'll just render the picker
 
   return (
     <div className={styles.pickerContainer}>
-      <div 
-        className={clsx(styles.charBtn, activeChar === ' ' && styles.active)}
-        onClick={() => onSelect(' ')}
-        style={{ gridColumn: '1 / -1', width: '100%' }}
-        title="Space (Eraser)"
-      >
-        [SPACE]
+      <div className={styles.specialChars}>
+        <button 
+          className={clsx(styles.charBtn, activeChar === '' && styles.active)}
+          onClick={() => onSelect('')}
+          title="Empty (Clear)"
+        >
+          ∅
+        </button>
+        <button 
+          className={clsx(styles.charBtn, activeChar === ' ' && styles.active)}
+          onClick={() => onSelect(' ')}
+          title="Space (Dot)"
+        >
+          [SPACE]
+        </button>
       </div>
 
       {CHAR_GROUPS.map(group => (

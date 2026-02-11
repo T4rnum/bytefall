@@ -3,6 +3,7 @@ import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette,
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { ToolType } from '../../modules/2d/types'
 import { CharPicker } from '../UI/CharPicker'
+import { ColorPalette } from '../UI/ColorPalette'
 import styles from './Panels.module.scss'
 import clsx from 'clsx'
 
@@ -243,6 +244,11 @@ export const ToolsPanel = () => {
                 </div>
                 </>
             )}
+
+            <div style={{ marginTop: '15px', borderTop: '2px solid var(--border-color)', paddingTop: '10px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--accent)', marginBottom: '8px' }}>PALETTE</div>
+                <ColorPalette />
+            </div>
         </div>
       </div>
     </div>

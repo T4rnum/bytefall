@@ -52,24 +52,29 @@ Bytefall is a powerful ASCII/Symbol-based 2D and 3D graphics editor and animatio
 ### Phase 1: Foundation (Current)
 - [x] Project Setup (Electron + Vite + React).
 - [x] "Press Start 2P" Font integration.
-- [ ] Basic Dockable UI Layout.
+- [x] Basic Dockable UI Layout.
 
 ### Phase 2: 2D Core
-- [ ] Grid Rendering Engine.
-- [ ] Basic Tools (Pen, Eraser).
-- [ ] Color Palette.
+- [x] Grid Rendering Engine.
+- [x] Basic Tools (Pen, Eraser, Fill, Shapes).
+- [x] Color Palette.
 
 ### Phase 3: Layers & Animation
-- [ ] Layer System.
-- [ ] Timeline UI.
-- [ ] Frame Management.
+- [x] Layer System (Visibility, Opacity, Rename, Delete).
+- [x] Timeline UI (Playback, FPS, Frame Management).
+- [x] Onion Skinning.
 
-### Phase 4: 3D Core
+### Phase 4: Advanced Tools & Export
+- [ ] Selection Tools (Lasso, Magic Wand).
+- [x] Export to PNG.
+- [ ] Export to GIF/SpriteSheet.
+
+### Phase 5: 3D Core
 - [ ] Three.js Viewport.
 - [ ] Basic Mesh creation.
 - [ ] Camera Controls.
 
-### Phase 5: Advanced Features
+### Phase 6: Advanced Features
 - [ ] Hybrid Mode (2D in 3D).
 - [ ] Export/Import System.
 - [ ] Custom Scripting/Game Engine Integration.

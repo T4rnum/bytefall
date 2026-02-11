@@ -3,6 +3,7 @@ import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { Frame } from '../../modules/2d/types'
 import { Play, Pause, Plus, Copy, Ghost } from 'lucide-react'
+import { NumberDragger } from '../UI/NumberDragger'
 import styles from './TimelinePanel.module.scss'
 import clsx from 'clsx'
 
@@ -102,15 +103,14 @@ export const TimelinePanel = () => {
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px' }}>
             <span>FPS:</span>
-            <span style={{ display: 'inline-block', width: '24px', textAlign: 'right' }}>{fps}</span>
-            <input 
-                type="range" 
-                min="1" 
-                max="24" 
-                value={fps} 
-                onChange={(e) => setFps(Number(e.target.value))}
-                className={styles.fpsSlider}
-            />
+            <div style={{ width: '40px' }}>
+              <NumberDragger 
+                  value={fps} 
+                  min={1} 
+                  max={60} 
+                  onChange={(val) => setFps(val)}
+              />
+            </div>
         </div>
 
         <div style={{ width: '1px', height: '20px', background: 'var(--border-color)' }} />

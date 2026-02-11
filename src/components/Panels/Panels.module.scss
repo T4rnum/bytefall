@@ -44,10 +44,9 @@
 
 .settingsSection {
   padding: 12px;
-  border-top: 2px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .settingRow {
@@ -56,6 +55,13 @@
   justify-content: space-between;
   font-size: 10px;
   gap: 12px;
+  min-height: 24px;
+
+  label {
+    flex: 1;
+    line-height: 1.6;
+    display: block;
+  }
 }
 
 .charInputContainer {
@@ -166,34 +172,80 @@
 
   &:hover {
     border-color: var(--text-secondary);
+
+    .layerActions {
+      display: flex;
+    }
   }
 
   &.active {
     border-color: var(--accent);
     background-color: rgba(255, 204, 0, 0.1);
   }
-}
 
-.visibilityBtn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px;
-  margin-right: 8px;
-  display: flex;
-  align-items: center;
-  
-  &:hover {
-    color: var(--text-primary);
+  .visibilityBtn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    margin-right: 8px;
+    display: flex;
+    align-items: center;
+    
+    &:hover {
+      color: var(--text-primary);
+    }
+  }
+
+  .layerName {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    cursor: default;
+  }
+
+  .layerRenameInput {
+    flex: 1;
+    background: #111;
+    border: 1px solid var(--accent);
+    color: #fff;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
+    padding: 2px 4px;
+    outline: none;
+    width: 0; // Allow flex to control width
+  }
+
+  .layerActions {
+    display: none;
+    gap: 4px;
+    margin-left: 8px;
   }
 }
 
-.layerName {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.iconBtnSmall {
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 2px;
+
+  &:hover:not(:disabled) {
+    background: #444;
+    color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
 }
 
 .iconBtn {

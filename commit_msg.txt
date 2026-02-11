@@ -1,0 +1,8 @@
+feat: Implement Circle shape tool with preview
+
+- Add 'circle' to ToolType
+- Add Circle icon to ToolsPanel
+- Implement getCirclePoints using Bresenham's algorithm in CanvasRenderer
+- Add circle preview and drawing logic
+- Fix implicit any types in shape helper functions
+- Update ROADMAP.md

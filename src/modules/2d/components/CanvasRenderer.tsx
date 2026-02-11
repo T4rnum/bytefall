@@ -33,7 +33,7 @@ function hexToRgb(hex: string) {
 }
 
 function getLinePoints(x0: number, y0: number, x1: number, y1: number) {
-    const points = []
+    const points: {x: number, y: number}[] = []
     const dx = Math.abs(x1 - x0)
     const dy = Math.abs(y1 - y0)
     const sx = x0 < x1 ? 1 : -1
@@ -60,7 +60,7 @@ function getLinePoints(x0: number, y0: number, x1: number, y1: number) {
 }
 
 function getRectPoints(x0: number, y0: number, x1: number, y1: number) {
-    const points = []
+    const points: {x: number, y: number}[] = []
     const minX = Math.min(x0, x1)
     const maxX = Math.max(x0, x1)
     const minY = Math.min(y0, y1)
@@ -75,6 +75,47 @@ function getRectPoints(x0: number, y0: number, x1: number, y1: number) {
     for (let y = minY + 1; y < maxY; y++) {
         points.push({ x: minX, y })
         points.push({ x: maxX, y })
+    }
+    return points
+}
+
+function getCirclePoints(x0: number, y0: number, x1: number, y1: number) {
+    const points: {x: number, y: number}[] = []
+    const radius = Math.round(Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2)))
+    let x = 0
+    let y = radius
+    let d = 3 - 2 * radius
+
+    const added = new Set<string>()
+
+    const addPoint = (px: number, py: number) => {
+        const key = `${px},${py}`
+        if (!added.has(key)) {
+            points.push({ x: px, y: py })
+            added.add(key)
+        }
+    }
+
+    const addSymPoints = (cx: number, cy: number, x: number, y: number) => {
+        addPoint(cx + x, cy + y)
+        addPoint(cx - x, cy + y)
+        addPoint(cx + x, cy - y)
+        addPoint(cx - x, cy - y)
+        addPoint(cx + y, cy + x)
+        addPoint(cx - y, cy + x)
+        addPoint(cx + y, cy - x)
+        addPoint(cx - y, cy - x)
+    }
+
+    while (y >= x) {
+        addSymPoints(x0, y0, x, y)
+        x++
+        if (d > 0) {
+            y--
+            d = d + 4 * (x - y) + 10
+        } else {
+            d = d + 4 * x + 6
+        }
     }
     return points
 }
@@ -713,6 +754,8 @@ export function CanvasRenderer() {
           points = getLinePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
       } else if (activeTool === 'rectangle') {
           points = getRectPoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
+      } else if (activeTool === 'circle') {
+          points = getCirclePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
       }
       
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
@@ -922,7 +965,7 @@ export function CanvasRenderer() {
     }
 
     // Apply Shape Tools
-    if ((activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'gradient') && startPos && hoverPos) {
+    if ((activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'gradient') && startPos && hoverPos) {
         saveSnapshot()
         const updates: {x: number, y: number, data: any}[] = []
 
@@ -991,6 +1034,8 @@ export function CanvasRenderer() {
                 points = getLinePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
             } else if (activeTool === 'rectangle') {
                 points = getRectPoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
+            } else if (activeTool === 'circle') {
+                points = getCirclePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
             }
 
             points.forEach(p => {

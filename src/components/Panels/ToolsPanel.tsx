@@ -1,4 +1,4 @@
-import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette, ArrowUpRight } from 'lucide-react'
+import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette, ArrowUpRight, Circle } from 'lucide-react'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { ToolType } from '../../modules/2d/types'
 import styles from './Panels.module.scss'
@@ -13,6 +13,7 @@ const TOOLS: { id: ToolType; icon: React.ElementType; label: string }[] = [
   { id: 'eyedropper', icon: Pipette, label: 'Eyedropper' },
   { id: 'line', icon: Minus, label: 'Line' },
   { id: 'rectangle', icon: Square, label: 'Rectangle' },
+  { id: 'circle', icon: Circle, label: 'Circle' },
 ]
 
 export const ToolsPanel = () => {

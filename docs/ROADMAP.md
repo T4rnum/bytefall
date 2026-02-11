@@ -12,7 +12,7 @@
 ## Phase 2: Advanced 2D Editor (Current)
 - [x] Gradient Tool (Linear/Radial)
 - [ ] Advanced Selection (Move, Cut, Copy, Paste, Transform)
-- [ ] Shape Tools (Line, Rectangle, Circle) with Preview
+- [x] Shape Tools (Line, Rectangle, Circle) with Preview
 - [ ] Custom Color Palette Management
 - [ ] Text Tool (ASCII text insertion)
 - [ ] Image Import/Reference (Background overlay)

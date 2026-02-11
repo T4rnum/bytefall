@@ -1,0 +1,49 @@
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('../assets/fonts/PressStart2P-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+:root {
+  --bg-dark: #2e2c29;
+  --bg-panel: #1a1918;
+  --text-main: #f0f0f0;
+  --accent: #ffcc00;
+  --border-color: #555;
+  --font-main: 'Press Start 2P', cursive;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-main);
+  font-size: 12px;
+  overflow: hidden;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar styling for a retro look */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border: 1px solid var(--bg-panel);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}

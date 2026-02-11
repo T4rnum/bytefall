@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bytefall</title>
+  </head>
+  <body>
+    <div id="root">
+      <div style="color: white; padding: 20px; font-family: monospace;">
+        Loading Bytefall... (If this persists, something is wrong)
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      console.log('Index.html loaded');
+      window.onerror = function(message, source, lineno, colno, error) {
+        console.error('Global error:', message, error);
+        document.body.innerHTML += '<div style="color: red; padding: 20px;">Error: ' + message + '</div>';
+      };
+    </script>
+  </body>
+</html>

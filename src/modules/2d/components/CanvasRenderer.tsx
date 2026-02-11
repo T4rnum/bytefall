@@ -126,6 +126,8 @@ export function CanvasRenderer() {
   const activeTool = useEditorStore(state => state.activeTool)
   const brushChar = useEditorStore(state => state.brushChar)
   const brushColor = useEditorStore(state => state.brushColor)
+  const secondaryChar = useEditorStore(state => state.secondaryChar)
+  const secondaryColor = useEditorStore(state => state.secondaryColor)
   const onionSkinEnabled = useEditorStore(state => state.onionSkinEnabled)
   const gradientType = useEditorStore(state => state.gradientType)
   const gradientColorStart = useEditorStore(state => state.gradientColorStart)
@@ -142,6 +144,7 @@ export function CanvasRenderer() {
   
   const [isDragging, setIsDragging] = useState(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
+  const isRightClick = useRef(false)
   const [hoverPos, setHoverPos] = useState<{x: number, y: number} | null>(null)
   const [startPos, setStartPos] = useState<{x: number, y: number} | null>(null)
 
@@ -825,12 +828,16 @@ export function CanvasRenderer() {
     }
 
     const pos = getMousePos(e)
+    isRightClick.current = e.button === 2
     
     // Check Bounds
     const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
-    if (isOutOfBounds && activeTool !== 'select') return // Allow select to start outside? Maybe not.
+    if (isOutOfBounds && activeTool !== 'select') return
 
     if (activeTool === 'select') {
+        // Prevent Right Click from starting selection
+        if (isRightClick.current) return
+
         // Check if clicking inside existing selection
         let clickedInside = false
         if (selection) {
@@ -882,19 +889,16 @@ export function CanvasRenderer() {
     setStartPos(pos)
     
     if (!isOutOfBounds) {
+        const char = isRightClick.current ? secondaryChar : brushChar
+        const color = isRightClick.current ? secondaryColor : brushColor
+
         if (activeTool === 'brush') {
-            setCell(pos.x, pos.y, { char: brushChar, color: brushColor })
+            setCell(pos.x, pos.y, { char, color })
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
         } else if (activeTool === 'fill') {
-            // Flood Fill
+            // Flood Fill placeholder
             saveSnapshot()
-            // ... (Fill logic can be complex, skipping for brevity or implement if needed)
-            // Simple fill implementation:
-            // Need access to getCell which is async/complex in store? 
-            // Better to implement fill in store or here if we have full access.
-            // For now, let's assume single cell click or implement fill later.
-            // User requested Fill tool earlier, assuming it works or is basic.
         } else if (activeTool === 'eyedropper') {
              // ...
         }
@@ -928,7 +932,9 @@ export function CanvasRenderer() {
         if (isOutOfBounds) return
 
         if (activeTool === 'brush') {
-            setCell(pos.x, pos.y, { char: brushChar, color: brushColor })
+            const char = isRightClick.current ? secondaryChar : brushChar
+            const color = isRightClick.current ? secondaryColor : brushColor
+            setCell(pos.x, pos.y, { char, color })
         } else if (activeTool === 'eraser') {
             setCell(pos.x, pos.y, { char: '', color: '' })
         }
@@ -941,6 +947,7 @@ export function CanvasRenderer() {
     if (isMovingSelection) {
         // Stop moving, but KEEP floating selection active
         setIsMovingSelection(false)
+        isRightClick.current = false
         return
     }
 
@@ -969,6 +976,7 @@ export function CanvasRenderer() {
             setSelection(null)
         }
         setStartPos(null)
+        isRightClick.current = false
         return
     }
 
@@ -976,6 +984,9 @@ export function CanvasRenderer() {
     if ((activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'gradient') && startPos && hoverPos) {
         saveSnapshot()
         const updates: {x: number, y: number, data: any}[] = []
+
+        const char = isRightClick.current ? secondaryChar : brushChar
+        const color = isRightClick.current ? secondaryColor : brushColor // Not used for gradient interpolation but for shape color
 
         if (activeTool === 'gradient') {
              // ... Gradient Apply Logic ...
@@ -1001,6 +1012,10 @@ export function CanvasRenderer() {
              const lenSq = dx * dx + dy * dy
              const radius = Math.sqrt(lenSq)
 
+             // Check if we should fill Background or Character
+             // If char is empty or space, fill background
+             const useBg = !char || char === ' '
+
              for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
                     let factor = 0
@@ -1018,25 +1033,19 @@ export function CanvasRenderer() {
                     }
 
                     factor = Math.max(0, Math.min(1, factor))
-                    const color = interpolateColor(gradientColorStart, gradientColorEnd, factor)
+                    const gradColor = interpolateColor(gradientColorStart, gradientColorEnd, factor)
                     
-                    // Only apply if inside bounds/selection?
-                    // Already limited by loop bounds.
-                    // Should we check if existing cell? Or just overwrite?
-                    // Gradients usually fill.
                     updates.push({
-                        x, y,
-                        data: { char: brushChar, color: color, bgColor: '' } // Or bgColor?
-                    })
-                    // Note: User complaint "fills whole field". Fixed by selection check.
-                    // But if no selection, fills whole field. Correct.
-                    // Should gradient apply to CHAR color or BG color?
-                    // Currently applying to char color.
+                         x, y,
+                         data: useBg 
+                             ? { char: '', color: '', bgColor: gradColor } 
+                             : { char: char, color: gradColor, bgColor: '' }
+                     })
                 }
              }
 
         } else {
-            // Line / Rect
+            // Line / Rect / Circle
             let points: {x: number, y: number}[] = []
             if (activeTool === 'line') {
                 points = getLinePoints(startPos.x, startPos.y, hoverPos.x, hoverPos.y)
@@ -1053,7 +1062,7 @@ export function CanvasRenderer() {
                 updates.push({
                     x: p.x,
                     y: p.y,
-                    data: { char: brushChar, color: brushColor }
+                    data: { char: char, color: color }
                 })
             })
         }
@@ -1061,6 +1070,7 @@ export function CanvasRenderer() {
         batchUpdateCells(updates)
         setStartPos(null)
     }
+    isRightClick.current = false
   }
 
   // Animation Loop
@@ -1084,13 +1094,17 @@ export function CanvasRenderer() {
     ])
 
   return (
-    <div className={styles.canvasContainer} ref={containerRef}>
+    <div 
+      className={styles.canvasContainer}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onContextMenu={(e) => e.preventDefault()}
+      ref={containerRef}
+    >
       <canvas 
         ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
       />
       <div className={styles.overlay}>

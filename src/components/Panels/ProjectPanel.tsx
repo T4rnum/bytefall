@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
+import { NumberDragger } from '../UI/NumberDragger'
 import styles from './Panels.module.scss'
 
 export const ProjectPanel = () => {
@@ -23,21 +24,21 @@ export const ProjectPanel = () => {
             <div className={styles.settingsSection}>
                 <div className={styles.settingRow}>
                     <label>WIDTH</label>
-                    <input 
-                        type="number" 
+                    <NumberDragger 
                         value={width} 
-                        onChange={(e) => setWidth(parseInt(e.target.value) || 1)}
-                        className={styles.charInput}
+                        onChange={setWidth}
+                        min={1}
+                        max={200}
                         style={{ width: '60px' }}
                     />
                 </div>
                 <div className={styles.settingRow}>
                     <label>HEIGHT</label>
-                    <input 
-                        type="number" 
+                    <NumberDragger 
                         value={height} 
-                        onChange={(e) => setHeight(parseInt(e.target.value) || 1)}
-                        className={styles.charInput}
+                        onChange={setHeight}
+                        min={1}
+                        max={200}
                         style={{ width: '60px' }}
                     />
                 </div>
@@ -45,7 +46,13 @@ export const ProjectPanel = () => {
                     <button 
                         className={styles.toolBtn} 
                         onClick={handleApply}
-                        style={{ width: '100%', aspectRatio: 'auto', padding: '10px', fontSize: '10px' }}
+                        style={{ 
+                            width: '100%', 
+                            aspectRatio: 'auto', 
+                            padding: '10px', 
+                            fontSize: '10px',
+                            fontFamily: '"Press Start 2P", cursive'
+                        }}
                     >
                         APPLY RESIZE
                     </button>

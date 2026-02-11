@@ -10,6 +10,8 @@ interface EditorState {
   activeTool: ToolType
   brushChar: string
   brushColor: string
+  secondaryChar: string
+  secondaryColor: string
   cursorPos: { x: number; y: number }
   
   // Display Options
@@ -33,6 +35,8 @@ interface EditorState {
   setActiveTool: (tool: ToolType) => void
   setBrushChar: (char: string) => void
   setBrushColor: (color: string) => void
+  setSecondaryChar: (char: string) => void
+  setSecondaryColor: (color: string) => void
   setCursorPos: (pos: { x: number; y: number }) => void
   setOnionSkinEnabled: (enabled: boolean) => void
   setGradientType: (type: 'linear' | 'radial') => void
@@ -45,6 +49,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   activeTool: 'brush',
   brushChar: '#',
   brushColor: '#ffffff',
+  secondaryChar: '',
+  secondaryColor: '#000000',
   cursorPos: { x: 0, y: 0 },
   onionSkinEnabled: false,
   gradientType: 'linear',
@@ -62,6 +68,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setActiveTool: (activeTool) => set({ activeTool }),
   setBrushChar: (brushChar) => set({ brushChar }),
   setBrushColor: (brushColor) => set({ brushColor }),
+  setSecondaryChar: (secondaryChar) => set({ secondaryChar }),
+  setSecondaryColor: (secondaryColor) => set({ secondaryColor }),
   setCursorPos: (cursorPos) => set({ cursorPos }),
   setOnionSkinEnabled: (onionSkinEnabled) => set({ onionSkinEnabled }),
   setGradientType: (gradientType) => set({ gradientType }),

@@ -19,6 +19,10 @@ interface EditorState {
   gradientType: 'linear' | 'radial'
   gradientColorStart: string
   gradientColorEnd: string
+  
+  // Background Settings
+  canvasBgColor: string | null // null = transparent
+  exportBgColor: string | null // null = transparent
 
   // Selection State
   selection: {x: number, y: number, w: number, h: number} | null
@@ -41,6 +45,8 @@ interface EditorState {
   setOnionSkinEnabled: (enabled: boolean) => void
   setGradientType: (type: 'linear' | 'radial') => void
   setGradientColors: (start: string, end: string) => void
+  setCanvasBgColor: (color: string | null) => void
+  setExportBgColor: (color: string | null) => void
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -56,6 +62,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   gradientType: 'linear',
   gradientColorStart: '#ffffff',
   gradientColorEnd: '#000000',
+  canvasBgColor: '#111111',
+  exportBgColor: null,
   selection: null,
   selectionTransform: null,
   clipboard: null,
@@ -74,4 +82,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   setOnionSkinEnabled: (onionSkinEnabled) => set({ onionSkinEnabled }),
   setGradientType: (gradientType) => set({ gradientType }),
   setGradientColors: (start, end) => set({ gradientColorStart: start, gradientColorEnd: end }),
+  setCanvasBgColor: (canvasBgColor) => set({ canvasBgColor }),
+  setExportBgColor: (exportBgColor) => set({ exportBgColor }),
 }))

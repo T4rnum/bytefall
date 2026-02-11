@@ -8,6 +8,7 @@ import { TabbedPanel } from './components/Common/TabbedPanel'
 import { CanvasRenderer } from './modules/2d/components/CanvasRenderer'
 import { SceneRenderer } from './modules/3d/components/SceneRenderer'
 import { useProjectStore } from './modules/2d/store/projectStore'
+import { useEditorStore } from './modules/2d/store/editorStore'
 import { Save, FolderOpen, Image as ImageIcon } from 'lucide-react'
 import './App.scss'
 
@@ -82,8 +83,11 @@ const Header = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: 
       if (!ctx) return
 
       // Background
-      ctx.fillStyle = '#2e2c29'
-      ctx.fillRect(0, 0, width, height)
+      const exportBgColor = useEditorStore.getState().exportBgColor
+      if (exportBgColor) {
+          ctx.fillStyle = exportBgColor
+          ctx.fillRect(0, 0, width, height)
+      }
 
       // Draw Cells
       activeFrame.layers.forEach(layer => {

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
+import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { NumberDragger } from '../UI/NumberDragger'
 import styles from './Panels.module.scss'
 
 export const ProjectPanel = () => {
     const { width: projectWidth, height: projectHeight, setSize } = useProjectStore()
+    const { canvasBgColor, setCanvasBgColor, exportBgColor, setExportBgColor } = useEditorStore()
     const [width, setWidth] = useState(projectWidth)
     const [height, setHeight] = useState(projectHeight)
 
@@ -56,6 +58,45 @@ export const ProjectPanel = () => {
                     >
                         APPLY RESIZE
                     </button>
+                </div>
+
+                <div className={styles.settingRow} style={{ marginTop: '15px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+                    <label>CANVAS BG</label>
+                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                         <input 
+                            type="checkbox" 
+                            checked={canvasBgColor === null}
+                            onChange={(e) => setCanvasBgColor(e.target.checked ? null : '#111111')}
+                         />
+                         <span style={{ fontSize: '10px', color: '#888' }}>TRANSP</span>
+                         {canvasBgColor !== null && (
+                             <input 
+                                type="color" 
+                                value={canvasBgColor}
+                                onChange={(e) => setCanvasBgColor(e.target.value)}
+                                style={{ width: '20px', height: '20px', padding: 0, border: 'none', background: 'none' }}
+                             />
+                         )}
+                    </div>
+                </div>
+                <div className={styles.settingRow}>
+                    <label>EXPORT BG</label>
+                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                         <input 
+                            type="checkbox" 
+                            checked={exportBgColor === null}
+                            onChange={(e) => setExportBgColor(e.target.checked ? null : '#111111')}
+                         />
+                         <span style={{ fontSize: '10px', color: '#888' }}>TRANSP</span>
+                         {exportBgColor !== null && (
+                             <input 
+                                type="color" 
+                                value={exportBgColor}
+                                onChange={(e) => setExportBgColor(e.target.value)}
+                                style={{ width: '20px', height: '20px', padding: 0, border: 'none', background: 'none' }}
+                             />
+                         )}
+                    </div>
                 </div>
             </div>
         </div>

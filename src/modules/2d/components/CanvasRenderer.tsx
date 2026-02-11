@@ -132,6 +132,7 @@ export function CanvasRenderer() {
   const gradientType = useEditorStore(state => state.gradientType)
   const gradientColorStart = useEditorStore(state => state.gradientColorStart)
   const gradientColorEnd = useEditorStore(state => state.gradientColorEnd)
+  const canvasBgColor = useEditorStore(state => state.canvasBgColor)
   const setClipboard = useEditorStore(state => state.setClipboard)
   
   // Selection from Store
@@ -280,6 +281,11 @@ export function CanvasRenderer() {
   // Keyboard Shortcuts (Undo/Redo/Delete/Copy/Cut/Paste)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+        // Ignore if typing in an input
+        if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
+            return
+        }
+
         // Copy: Ctrl+C
         if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
             e.preventDefault()
@@ -450,9 +456,20 @@ export function CanvasRenderer() {
                     batchUpdateCells(updates)
                 }
             } else if (activeTool === 'brush') {
-                // Set brush char to empty (Eraser analog)
-                // "Give ability to draw with emptiness"
-                useEditorStore.getState().setBrushChar('')
+                // Set secondary char to empty (Eraser analog for RMB)
+                useEditorStore.getState().setSecondaryChar('')
+            }
+        } else {
+            // Tool Shortcuts
+            switch(e.key.toLowerCase()) {
+                case 'b': useEditorStore.getState().setActiveTool('brush'); break;
+                case 'e': useEditorStore.getState().setActiveTool('eraser'); break;
+                case 'g': useEditorStore.getState().setActiveTool('fill'); break;
+                case 'l': useEditorStore.getState().setActiveTool('line'); break;
+                case 'r': useEditorStore.getState().setActiveTool('rectangle'); break;
+                case 'c': useEditorStore.getState().setActiveTool('circle'); break;
+                case 'i': useEditorStore.getState().setActiveTool('eyedropper'); break;
+                case 's': useEditorStore.getState().setActiveTool('select'); break;
             }
         }
     }
@@ -481,8 +498,11 @@ export function CanvasRenderer() {
     if (!ctx) return
 
     // Clear canvas
-    ctx.fillStyle = '#111'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    if (canvasBgColor) {
+        ctx.fillStyle = canvasBgColor
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
 
     // Apply transformation
     ctx.save()

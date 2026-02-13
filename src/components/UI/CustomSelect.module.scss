@@ -1,0 +1,86 @@
+.selectContainer {
+  position: relative;
+  width: 100%;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  user-select: none;
+  z-index: 100;
+}
+
+.selectedArea {
+  background-color: var(--bg-dark);
+  border: 2px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--text-secondary);
+  }
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.rotated {
+  transform: rotate(180deg);
+}
+
+.optionsList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  background-color: var(--bg-darker);
+  border: 2px solid var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--accent);
+  }
+}
+
+.option {
+  padding: 8px 12px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.1s;
+
+  &:hover {
+    background-color: var(--accent);
+    color: #000;
+  }
+
+  &.selected {
+    background-color: var(--accent);
+    color: #000;
+  }
+}
+
+.open {
+  .selectedArea {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 8px rgba(255, 204, 0, 0.3);
+  }
+}

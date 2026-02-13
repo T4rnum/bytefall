@@ -27,4 +27,4 @@ export interface Frame {
   layers: Layer[]
 }
 
-export type ToolType = 'brush' | 'eraser' | 'fill' | 'select' | 'line' | 'rectangle' | 'circle' | 'eyedropper' | 'gradient'
+export type ToolType = 'brush' | 'eraser' | 'fill' | 'select' | 'lasso' | 'magicWand' | 'line' | 'rectangle' | 'circle' | 'eyedropper' | 'gradient' | 'move'

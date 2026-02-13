@@ -13,7 +13,8 @@ import { Save, FolderOpen, Image as ImageIcon } from 'lucide-react'
 import './App.scss'
 
 // Components moved outside to prevent re-creation on every render
-const Header = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) => {
+const Header = () => {
+  const { activeTab, setActiveTab } = useEditorStore()
   const { exportProject, loadProject, frames, activeFrameIndex } = useProjectStore()
 
   const handleSave = async () => {
@@ -157,7 +158,7 @@ const Header = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: 
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState('2D')
+  const { activeTab } = useEditorStore()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -169,7 +170,7 @@ function App() {
 
   return (
     <div className="app-container">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Header />
       <div className="workspace-wrapper">
         <MainLayout 
           leftPanel={<TabbedPanel tabs={[{ id: 'tools', title: 'TOOLS', content: <ToolsPanel /> }]} />}

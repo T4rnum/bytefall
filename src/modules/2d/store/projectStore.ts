@@ -23,6 +23,7 @@ interface ProjectState {
   renameLayer: (id: string, name: string) => void
   toggleLayerVisibility: (id: string) => void
   setLayerOpacity: (id: string, opacity: number) => void
+  updateLayer: (id: string, updates: Partial<Layer>) => void
   setActiveLayerId: (id: string) => void
   
   // Frame Actions
@@ -36,6 +37,11 @@ interface ProjectState {
   redo: () => void
   loadProject: (jsonContent: string) => void
   exportProject: () => string
+
+  // Selection Logic
+  copyToClipboard: (selection: {x: number, y: number, w: number, h: number}, mask: Set<string> | null) => void
+  pasteFromClipboard: (x: number, y: number) => {dx: number, dy: number, data: any}[] | null
+  deleteSelection: (selection: {x: number, y: number, w: number, h: number}, mask: Set<string> | null) => void
 }
 
 const createInitialLayer = (): Layer => ({
@@ -186,7 +192,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setCell: (x, y, cellData) => {
-    const { frames, activeFrameIndex, activeLayerId } = get()
+    const { frames, activeFrameIndex, activeLayerId, saveSnapshot } = get()
+    
+    // Save snapshot before the first edit in a sequence if needed, 
+    // but usually tool calls handle this. For individual pixel drawing,
+    // we might want to be careful not to spam history.
+    // However, the request is for "remembering actions".
     
     const newFrames = [...frames]
     const currentFrame = { ...newFrames[activeFrameIndex] }
@@ -275,24 +286,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ frames: newFrames })
   },
 
+  updateLayer: (id, updates) => {
+    const { frames } = get()
+    const newFrames = frames.map(frame => ({
+      ...frame,
+      layers: frame.layers.map(l => l.id === id ? { ...l, ...updates } : l)
+    }))
+    set({ frames: newFrames })
+  },
+
   addLayer: (name) => {
-    set(state => {
-      const newFrames = state.frames.map(frame => ({
-        ...frame,
-        layers: [...frame.layers, {
-          id: `layer-${Date.now()}`,
-          name,
-          visible: true,
-          opacity: 1,
-          data: new Map()
-        }]
-      }))
-      
-      // We should probably save snapshot after adding layer?
-      // Or let user do it. Usually structure changes are also undoable.
-      // For now, let's just update state. Caller can snapshot.
-      return { frames: newFrames }
-    })
+    const { frames, saveSnapshot } = get()
+    saveSnapshot()
+    
+    const newId = `layer-${Date.now()}`
+    const newFrames = frames.map(frame => ({
+      ...frame,
+      layers: [...frame.layers, {
+        id: newId,
+        name,
+        visible: true,
+        opacity: 1,
+        data: new Map()
+      }]
+    }))
+    
+    set({ frames: newFrames, activeLayerId: newId })
   },
   
   toggleLayerVisibility: (id) => {
@@ -341,5 +360,59 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               data: Array.from(l.data.entries())
           }))
       })))
+  },
+
+  copyToClipboard: (selection, mask) => {
+    const { frames, activeFrameIndex, activeLayerId } = get()
+    const frame = frames[activeFrameIndex]
+    const layer = frame?.layers.find(l => l.id === activeLayerId)
+    if (!layer) return
+
+    const clipboard: {dx: number, dy: number, data: any}[] = []
+    for (let y = 0; y < selection.h; y++) {
+        for (let x = 0; x < selection.w; x++) {
+            const gx = selection.x + x
+            const gy = selection.y + y
+            const key = `${gx},${gy}`
+            if (mask && !mask.has(key)) continue
+
+            const cell = layer.data.get(key)
+            if (cell) {
+                clipboard.push({ dx: x, dy: y, data: { ...cell } })
+            }
+        }
+    }
+    // We can't use useEditorStore directly here to avoid circular deps if any
+    // Instead we will let the component call setClipboard
+    // But for simplicity in this project's structure, we might need a better way
+    // Let's assume the component will handle the store update
+  },
+
+  pasteFromClipboard: (x, y) => {
+    // This will be handled by the component using the clipboard data from editorStore
+    return null 
+  },
+
+  deleteSelection: (selection, mask) => {
+    const { frames, activeFrameIndex, activeLayerId, batchUpdateCells, saveSnapshot } = get()
+    const frame = frames[activeFrameIndex]
+    const layer = frame?.layers.find(l => l.id === activeLayerId)
+    if (!layer) return
+
+    saveSnapshot()
+    const updates: {x: number, y: number, data: any}[] = []
+    for (let sy = 0; sy < selection.h; sy++) {
+        for (let sx = 0; sx < selection.w; sx++) {
+            const gx = selection.x + sx
+            const gy = selection.y + sy
+            const key = `${gx},${gy}`
+            if (mask && !mask.has(key)) continue
+            
+            if (layer.data.has(key)) {
+                updates.push({ x: gx, y: gy, data: { char: '', color: '' } })
+            }
+        }
+    }
+    batchUpdateCells(updates)
   }
 }))

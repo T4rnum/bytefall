@@ -65,14 +65,15 @@ Bytefall is a powerful ASCII/Symbol-based 2D and 3D graphics editor and animatio
 - [x] Onion Skinning.
 
 ### Phase 4: Advanced Tools & Export
-- [ ] Selection Tools (Lasso, Magic Wand).
+- [x] Selection Tools (Lasso, Magic Wand).
 - [x] Export to PNG.
-- [ ] Export to GIF/SpriteSheet.
+- [x] Export to GIF/SpriteSheet.
 
 ### Phase 5: 3D Core
-- [ ] Three.js Viewport.
-- [ ] Basic Mesh creation.
-- [ ] Camera Controls.
+- [x] Three.js Viewport.
+- [x] Basic Mesh creation (Voxel/Plane).
+- [x] Camera Controls (Orbit).
+- [x] Real-time 2D to 3D mapping.
 
 ### Phase 6: Advanced Features
 - [ ] Hybrid Mode (2D in 3D).

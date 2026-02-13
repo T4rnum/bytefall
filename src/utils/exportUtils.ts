@@ -1,4 +1,5 @@
 import { Frame } from '../modules/2d/types'
+import gifshot from 'gifshot'
 
 const GRID_SIZE = 16
 const FONT_SIZE = 12
@@ -9,11 +10,83 @@ export const exportFrameToPNG = (
     height: number, 
     bgColor: string | null
 ) => {
+    const canvas = renderFrameToCanvas(frame, width, height, bgColor)
+    downloadCanvasAsPNG(canvas, `bytefall_frame_${Date.now()}.png`)
+}
+
+export const exportToSpriteSheet = (
+    frames: Frame[],
+    width: number,
+    height: number,
+    bgColor: string | null
+) => {
+    if (frames.length === 0) return
+
     const canvas = document.createElement('canvas')
-    canvas.width = width * GRID_SIZE
+    canvas.width = width * GRID_SIZE * frames.length
     canvas.height = height * GRID_SIZE
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    frames.forEach((frame, index) => {
+        const frameCanvas = renderFrameToCanvas(frame, width, height, bgColor)
+        ctx.drawImage(frameCanvas, index * width * GRID_SIZE, 0)
+    })
+
+    downloadCanvasAsPNG(canvas, `bytefall_spritesheet_${Date.now()}.png`)
+}
+
+export const exportToGIF = (
+    frames: Frame[],
+    width: number,
+    height: number,
+    bgColor: string | null,
+    fps: number = 10
+) => {
+    if (frames.length === 0) return
+
+    const scale = 2
+    const images = frames.map(frame => {
+        const canvas = renderFrameToCanvas(frame, width, height, bgColor)
+        return canvas.toDataURL('image/png')
+    })
+
+    gifshot.createGIF({
+        images: images,
+        gifWidth: width * GRID_SIZE * scale,
+        gifHeight: height * GRID_SIZE * scale,
+        interval: 1 / fps,
+        numFrames: frames.length,
+        frameDuration: 1,
+        sampleInterval: 1, 
+        clearFilters: true,
+    }, (obj: any) => {
+        if (!obj.error) {
+            const link = document.createElement('a')
+            link.download = `bytefall_animation_${Date.now()}.gif`
+            link.href = obj.image
+            link.click()
+        }
+    })
+}
+
+// Internal helpers
+const renderFrameToCanvas = (
+    frame: Frame,
+    width: number,
+    height: number,
+    bgColor: string | null
+): HTMLCanvasElement => {
+    const canvas = document.createElement('canvas')
+    // Use higher resolution for crispness
+    const scale = 2 
+    canvas.width = width * GRID_SIZE * scale
+    canvas.height = height * GRID_SIZE * scale
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return canvas
+
+    ctx.scale(scale, scale)
+    ctx.imageSmoothingEnabled = false
 
     // Fill background
     if (bgColor) {
@@ -35,7 +108,6 @@ export const exportFrameToPNG = (
 
         layer.data.forEach((cell, key) => {
             const [x, y] = key.split(',').map(Number)
-            // Convert coordinate system (-width/2 ... width/2) to (0 ... width)
             const px = (x + width / 2) * GRID_SIZE + GRID_SIZE / 2
             const py = (y + height / 2) * GRID_SIZE + GRID_SIZE / 2
 
@@ -51,9 +123,12 @@ export const exportFrameToPNG = (
         })
     })
 
-    // Download
+    return canvas
+}
+
+const downloadCanvasAsPNG = (canvas: HTMLCanvasElement, filename: string) => {
     const link = document.createElement('a')
-    link.download = `bytefall_export_${Date.now()}.png`
+    link.download = filename
     link.href = canvas.toDataURL('image/png')
     link.click()
 }

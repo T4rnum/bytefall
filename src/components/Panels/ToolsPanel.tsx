@@ -1,18 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette, ArrowUpRight, Circle } from 'lucide-react'
+import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette, ArrowUpRight, Circle, Lasso, Wand2, PlusSquare, MinusSquare, BoxSelect, Move } from 'lucide-react'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { ToolType } from '../../modules/2d/types'
 import { CharPicker } from '../UI/CharPicker'
 import { ColorPalette } from '../UI/ColorPalette'
+import { NumberDragger } from '../UI/NumberDragger'
+import { CustomSelect } from '../UI/CustomSelect'
 import styles from './Panels.module.scss'
 import clsx from 'clsx'
 
 const TOOLS: { id: ToolType; icon: React.ElementType; label: string; hotkey: string }[] = [
   { id: 'select', icon: MousePointer2, label: 'Select', hotkey: 'S' },
+  { id: 'move', icon: Move, label: 'Move', hotkey: 'V' },
+  { id: 'lasso', icon: Lasso, label: 'Lasso', hotkey: 'K' },
+  { id: 'magicWand', icon: Wand2, label: 'Wand', hotkey: 'W' },
   { id: 'brush', icon: Paintbrush, label: 'Brush', hotkey: 'B' },
   { id: 'eraser', icon: Eraser, label: 'Eraser', hotkey: 'E' },
   { id: 'fill', icon: PaintBucket, label: 'Fill', hotkey: 'G' },
-  { id: 'gradient', icon: ArrowUpRight, label: 'Gradient', hotkey: 'H' }, // Changed hotkey to H to avoid conflict if needed
+  { id: 'gradient', icon: ArrowUpRight, label: 'Gradient', hotkey: 'H' },
   { id: 'eyedropper', icon: Pipette, label: 'Eyedropper', hotkey: 'I' },
   { id: 'line', icon: Minus, label: 'Line', hotkey: 'L' },
   { id: 'rectangle', icon: Square, label: 'Rectangle', hotkey: 'R' },
@@ -145,7 +150,17 @@ export const ToolsPanel = () => {
     setGradientType,
     gradientColorStart,
     gradientColorEnd,
-    setGradientColors
+    setGradientColors,
+    wandMode,
+    setWandMode,
+    wandTolerance,
+    setWandTolerance,
+    selectionMode,
+    setSelectionMode,
+    asciiMode3D,
+    asciiFontSize,
+    setAsciiFontSize,
+    activeTab
   } = useEditorStore()
 
   return (
@@ -177,6 +192,53 @@ export const ToolsPanel = () => {
 
         <div className={styles.panelHeader}>SETTINGS</div>
         <div className={styles.settingsSection}>
+            {activeTab === '3D' && asciiMode3D && (
+                <div className={styles.settingRow} style={{ marginBottom: '10px', padding: '8px', backgroundColor: 'rgba(255, 204, 0, 0.05)', borderRadius: '4px', border: '1px solid rgba(255, 204, 0, 0.2)' }}>
+                    <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>ASCII SIZE</span>
+                    <NumberDragger
+                        value={asciiFontSize}
+                        onChange={setAsciiFontSize}
+                        min={5}
+                        max={10}
+                        step={1}
+                    />
+                </div>
+            )}
+            {(activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand') && (
+                <div className={styles.settingRow} style={{ marginBottom: '15px' }}>
+                    <span>MODE</span>
+                    <div className={styles.selectionModes}>
+                        <button 
+                            className={clsx(styles.modeBtn, selectionMode === 'new' && styles.active)}
+                            onClick={() => setSelectionMode('new')}
+                            title="New Selection (Ctrl click or release modifiers)"
+                        >
+                            <Square size={16} />
+                        </button>
+                        <button 
+                            className={clsx(styles.modeBtn, selectionMode === 'add' && styles.active)}
+                            onClick={() => setSelectionMode('add')}
+                            title="Add to Selection (Hold Shift)"
+                        >
+                            <PlusSquare size={16} />
+                        </button>
+                        <button 
+                            className={clsx(styles.modeBtn, selectionMode === 'subtract' && styles.active)}
+                            onClick={() => setSelectionMode('subtract')}
+                            title="Subtract from Selection (Hold Alt)"
+                        >
+                            <MinusSquare size={16} />
+                        </button>
+                        <button 
+                            className={clsx(styles.modeBtn, selectionMode === 'intersect' && styles.active)}
+                            onClick={() => setSelectionMode('intersect')}
+                            title="Intersect Selection (Hold Shift + Alt)"
+                        >
+                            <BoxSelect size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
             <div className={styles.settingRow}>
             <span>CHAR</span>
             <CharInput 
@@ -214,15 +276,15 @@ export const ToolsPanel = () => {
                 <>
                 <div className={styles.settingRow}>
                     <span>TYPE</span>
-                    <select 
+                    <CustomSelect 
                         value={gradientType} 
-                        onChange={(e) => setGradientType(e.target.value as 'linear' | 'radial')}
-                        className={styles.charInput}
-                        style={{ flex: 1, fontSize: '10px', width: 'auto' }}
-                    >
-                        <option value="linear">Linear</option>
-                        <option value="radial">Radial</option>
-                    </select>
+                        onChange={(val) => setGradientType(val as 'linear' | 'radial')}
+                        options={[
+                            { value: 'linear', label: 'LINEAR' },
+                            { value: 'radial', label: 'RADIAL' }
+                        ]}
+                        className={styles.toolSelect}
+                    />
                 </div>
                 <div className={styles.settingRow}>
                     <span>START</span>
@@ -242,6 +304,35 @@ export const ToolsPanel = () => {
                         onChange={(e) => setGradientColors(gradientColorStart, e.target.value)}
                     />
                 </div>
+                </>
+            )}
+
+            {activeTool === 'magicWand' && (
+                <>
+                <div className={styles.settingRow}>
+                    <span>MODE</span>
+                    <CustomSelect 
+                        value={wandMode} 
+                        onChange={(val) => setWandMode(val as 'color' | 'char')}
+                        options={[
+                            { value: 'color', label: 'COLOR' },
+                            { value: 'char', label: 'SYMBOL' }
+                        ]}
+                        className={styles.toolSelect}
+                    />
+                </div>
+                {wandMode === 'color' && (
+                    <div className={styles.settingRow}>
+                        <span>TOLERANCE</span>
+                        <NumberDragger
+                            value={wandTolerance}
+                            onChange={setWandTolerance}
+                            min={0}
+                            max={255}
+                            step={1}
+                        />
+                    </div>
+                )}
                 </>
             )}
 

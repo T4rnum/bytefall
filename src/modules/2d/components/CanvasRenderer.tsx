@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
+import { Position } from '../types'
 import styles from './CanvasRenderer.module.scss'
 
 const GRID_SIZE = 20 // Pixel size of one grid cell
@@ -138,32 +139,88 @@ export function CanvasRenderer() {
   const workspaceColor = useEditorStore(state => state.workspaceColor)
   const setClipboard = useEditorStore(state => state.setClipboard)
   
+  // Magic Wand settings
+  const wandMode = useEditorStore(state => state.wandMode)
+  const wandTolerance = useEditorStore(state => state.wandTolerance)
+  
   // Selection from Store
   const selection = useEditorStore(state => state.selection)
   const setSelection = useEditorStore(state => state.setSelection)
+  const selectionPath = useEditorStore(state => state.selectionPath)
+  const setSelectionPath = useEditorStore(state => state.setSelectionPath)
+  const selectionMask = useEditorStore(state => state.selectionMask)
+  const setSelectionMask = useEditorStore(state => state.setSelectionMask)
   const selectionTransform = useEditorStore(state => state.selectionTransform)
   const setSelectionTransform = useEditorStore(state => state.setSelectionTransform)
+  const selectionMode = useEditorStore(state => state.selectionMode)
+  const floatingSelection = useEditorStore(state => state.floatingSelection)
+  const setFloatingSelection = useEditorStore(state => state.setFloatingSelection)
 
-  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, undo, redo, width: projectWidth, height: projectHeight } = useProjectStore()
+  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, undo, redo, width: projectWidth, height: projectHeight, deleteSelection } = useProjectStore()
+  const clipboard = useEditorStore(state => state.clipboard)
   
   const [isDragging, setIsDragging] = useState(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
+  const lastEventRef = useRef<React.MouseEvent | KeyboardEvent | null>(null)
   const isRightClick = useRef(false)
   const [hoverPos, setHoverPos] = useState<{x: number, y: number} | null>(null)
   const [startPos, setStartPos] = useState<{x: number, y: number} | null>(null)
 
-  // Floating Selection remains local as it holds heavy pixel data
-  const [floatingSelection, setFloatingSelection] = useState<{dx: number, dy: number, data: any}[] | null>(null)
+  // Track modifiers for reactive preview
+  const [modifiers, setModifiers] = useState({ shift: false, alt: false })
+  const [tempMask, setTempMask] = useState<Set<string> | null>(null)
+
+  // Floating Selection is now global
   const [isMovingSelection, setIsMovingSelection] = useState(false)
   const [dragOffset, setDragOffset] = useState({x: 0, y: 0})
 
-  // Clear selection when tool changes
+  const updateSelectionBounds = (mask: Set<string>) => {
+    if (mask.size === 0) {
+      setSelection(null)
+      return
+    }
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    mask.forEach(key => {
+      const [x, y] = key.split(',').map(Number)
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+    })
+    setSelection({
+      x: minX,
+      y: minY,
+      w: maxX - minX + 1,
+      h: maxY - minY + 1
+    })
+  }
+
+  // Commit floating selection when switching active tool
   useEffect(() => {
-    setSelection(null)
-    setFloatingSelection(null)
-    setIsDragging(false)
-    setIsMovingSelection(false)
-  }, [activeTool, setSelection])
+    if (floatingSelection && selection && activeTool !== 'select' && activeTool !== 'lasso' && activeTool !== 'magicWand') {
+      saveSnapshot()
+      const updates = floatingSelection.map(item => ({
+          x: selection.x + item.dx,
+          y: selection.y + item.dy,
+          data: item.data
+      }))
+      batchUpdateCells(updates)
+      setFloatingSelection(null)
+    }
+  }, [activeTool])
+
+  const isPointInSelection = useCallback((x: number, y: number) => {
+    // If we are currently moving selection, only allows editing what's inside the moving part
+    // But usually while moving we don't allow drawing.
+    if (isMovingSelection) return false
+
+    if (!selection) return true // No selection means everything is editable
+    
+    if (selectionMask) {
+        return selectionMask.has(`${x},${y}`)
+    }
+    
+    return x >= selection.x && x < selection.x + selection.w &&
+           y >= selection.y && y < selection.y + selection.h
+  }, [selection, selectionMask])
 
   // Helper to lift selection from canvas to floating state
   const liftSelection = () => {
@@ -183,6 +240,10 @@ export function CanvasRenderer() {
                 const gx = selection.x + x
                 const gy = selection.y + y
                 const key = `${gx},${gy}`
+                
+                // If we have a mask (Lasso/Wand), check it
+                if (selectionMask && !selectionMask.has(key)) continue
+
                 const cell = activeLayer.data.get(key)
                 
                 if (cell && (cell.char || cell.bgColor)) {
@@ -281,16 +342,55 @@ export function CanvasRenderer() {
     return () => resizeObserver.disconnect()
   }, [])
 
-  // Keyboard Shortcuts (Undo/Redo/Delete/Copy/Cut/Paste)
+  // Keyboard and Global Mouse Listeners
   useEffect(() => {
+    const handleMouseLeave = () => {
+        setIsDragging(false)
+        setTempMask(null)
+        setStartPos(null)
+        setIsMovingSelection(false)
+    }
+
+    const container = containerRef.current
+    if (container) {
+        container.addEventListener('mouseleave', handleMouseLeave)
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
+        lastEventRef.current = e
+        setModifiers({ shift: e.shiftKey, alt: e.altKey })
+
         // Ignore if typing in an input
         if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
             return
         }
 
-        // Copy: Ctrl+C
-        if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        // Select All: Ctrl+A or Ctrl+Ф
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyA' || e.key === 'a' || e.key === 'ф' || e.key === 'Ф')) {
+            e.preventDefault()
+            const fullSelection = {
+                x: -Math.floor(projectWidth / 2),
+                y: -Math.floor(projectHeight / 2),
+                w: projectWidth,
+                h: projectHeight
+            }
+            setSelection(fullSelection)
+            
+            const newMask = new Set<string>()
+            for (let y = 0; y < projectHeight; y++) {
+                for (let x = 0; x < projectWidth; x++) {
+                    const gx = fullSelection.x + x
+                    const gy = fullSelection.y + y
+                    newMask.add(`${gx},${gy}`)
+                }
+            }
+            setSelectionMask(newMask)
+            setSelectionPath(null)
+            return
+        }
+
+        // Copy: Ctrl+C or Ctrl+С
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyC' || e.key === 'c' || e.key === 'с' || e.key === 'С')) {
             e.preventDefault()
             if (!selection) return
 
@@ -313,6 +413,7 @@ export function CanvasRenderer() {
                     for(let y = 0; y < selection.h; y++) {
                         for(let x = 0; x < selection.w; x++) {
                             const key = `${selection.x + x},${selection.y + y}`
+                            if (selectionMask && !selectionMask.has(key)) continue
                             const cell = activeLayer.data.get(key)
                             if (cell) {
                                 data.push({
@@ -328,8 +429,8 @@ export function CanvasRenderer() {
             return
         }
 
-        // Cut: Ctrl+X
-        if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        // Cut: Ctrl+X or Ctrl+Ч
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyX' || e.key === 'x' || e.key === 'ч' || e.key === 'Ч')) {
             e.preventDefault()
             if (!selection) return
 
@@ -344,7 +445,6 @@ export function CanvasRenderer() {
                 setFloatingSelection(null) // Clear floating
             } else {
                 // Reuse lift logic but for cutting (don't set floating, just get items)
-                // Actually liftSelection sets floating. We can just lift then clear floating.
                 const items = liftSelection()
                 if (items) {
                     data = items.map(item => ({ x: item.dx, y: item.dy, data: item.data }))
@@ -355,8 +455,8 @@ export function CanvasRenderer() {
             return
         }
 
-        // Paste: Ctrl+V
-        if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // Paste: Ctrl+V or Ctrl+М
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyV' || e.key === 'v' || e.key === 'м' || e.key === 'М')) {
             e.preventDefault()
             const currentClipboard = useEditorStore.getState().clipboard
             if (!currentClipboard) return
@@ -390,6 +490,8 @@ export function CanvasRenderer() {
                     w: currentClipboard.width,
                     h: currentClipboard.height
                 })
+                setSelectionMask(null)
+                setSelectionPath(null)
                 setFloatingSelection(newFloating)
             }
 
@@ -403,25 +505,42 @@ export function CanvasRenderer() {
         }
         
         // Enter / Esc: Commit
-        if (e.key === 'Enter' || e.code === 'Enter' || e.key === 'Escape') {
-             if (activeTool === 'select' && floatingSelection && selection) {
+        if (e.key === 'Escape' || e.code === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            
+            if (floatingSelection && selection) {
+                // Commit floating selection
+                saveSnapshot()
+                const updates = floatingSelection.map(item => ({
+                    x: selection.x + item.dx,
+                    y: selection.y + item.dy,
+                    data: item.data
+                }))
+                batchUpdateCells(updates)
+                setFloatingSelection(null)
+            }
+            
+            setSelection(null)
+            setSelectionPath(null)
+            setSelectionMask(null)
+            setIsMovingSelection(false)
+            return
+        }
+
+        if (e.key === 'Enter' || e.code === 'Enter') {
+             if (floatingSelection && selection) {
                 e.preventDefault()
                 e.stopPropagation()
-                
-                if (e.key === 'Escape') {
-                    setFloatingSelection(null)
-                    setSelection(null) 
-                } else {
-                    // Enter: Commit
-                    saveSnapshot()
-                    const updates = floatingSelection.map(item => ({
-                        x: selection.x + item.dx,
-                        y: selection.y + item.dy,
-                        data: item.data
-                    }))
-                    batchUpdateCells(updates)
-                    setFloatingSelection(null)
-                }
+                // Enter: Commit
+                saveSnapshot()
+                const updates = floatingSelection.map(item => ({
+                    x: selection.x + item.dx,
+                    y: selection.y + item.dy,
+                    data: item.data
+                }))
+                batchUpdateCells(updates)
+                setFloatingSelection(null)
              }
              return
         }
@@ -437,28 +556,39 @@ export function CanvasRenderer() {
             e.preventDefault()
             redo()
         } else if (e.code === 'Delete' || e.code === 'Backspace') {
-            if (activeTool === 'select' && selection && !isMovingSelection) {
+            if (selection && !isMovingSelection) {
                 // Delete selection content
                 e.preventDefault()
                 
                 if (floatingSelection) {
                     setFloatingSelection(null)
                     setSelection(null)
+                    setSelectionMask(null)
                 } else {
                     saveSnapshot()
                     
                     const updates = []
-                    for(let y = 0; y < selection.h; y++) {
-                        for(let x = 0; x < selection.w; x++) {
-                            updates.push({
-                                x: selection.x + x,
-                                y: selection.y + y,
-                                data: { char: '', color: '' }
-                            })
+                    if (selectionMask) {
+                        selectionMask.forEach(key => {
+                            const [x, y] = key.split(',').map(Number)
+                            updates.push({ x, y, data: { char: '', color: '' } })
+                        })
+                    } else {
+                        for(let y = 0; y < selection.h; y++) {
+                            for(let x = 0; x < selection.w; x++) {
+                                updates.push({
+                                    x: selection.x + x,
+                                    y: selection.y + y,
+                                    data: { char: '', color: '' }
+                                })
+                            }
                         }
                     }
                     batchUpdateCells(updates)
                     setSelection(null)
+                    setSelectionMask(null)
+                    setStartPos(null)
+                    setIsDragging(false)
                 }
             } else if (activeTool === 'brush') {
                 // Set secondary char to empty (Eraser analog for RMB)
@@ -466,8 +596,80 @@ export function CanvasRenderer() {
             }
         } else {
             // Tool Shortcuts - Using e.code for layout-agnostic hotkeys
-            switch(e.code) {
-                case 'KeyB': useEditorStore.getState().setActiveTool('brush'); break;
+        switch(e.code) {
+            case 'ArrowLeft':
+                if (selection) {
+                    e.preventDefault()
+                    const dx = -1, dy = 0
+                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
+                    if (selectionMask) {
+                        const newMask = new Set<string>()
+                        selectionMask.forEach(k => {
+                            const [x, y] = k.split(',').map(Number)
+                            newMask.add(`${x + dx},${y + dy}`)
+                        })
+                        setSelectionMask(newMask)
+                    }
+                    if (selectionPath) {
+                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
+                    }
+                }
+                break
+            case 'ArrowRight':
+                if (selection) {
+                    e.preventDefault()
+                    const dx = 1, dy = 0
+                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
+                    if (selectionMask) {
+                        const newMask = new Set<string>()
+                        selectionMask.forEach(k => {
+                            const [x, y] = k.split(',').map(Number)
+                            newMask.add(`${x + dx},${y + dy}`)
+                        })
+                        setSelectionMask(newMask)
+                    }
+                    if (selectionPath) {
+                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
+                    }
+                }
+                break
+            case 'ArrowUp':
+                if (selection) {
+                    e.preventDefault()
+                    const dx = 0, dy = -1
+                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
+                    if (selectionMask) {
+                        const newMask = new Set<string>()
+                        selectionMask.forEach(k => {
+                            const [x, y] = k.split(',').map(Number)
+                            newMask.add(`${x + dx},${y + dy}`)
+                        })
+                        setSelectionMask(newMask)
+                    }
+                    if (selectionPath) {
+                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
+                    }
+                }
+                break
+            case 'ArrowDown':
+                if (selection) {
+                    e.preventDefault()
+                    const dx = 0, dy = 1
+                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
+                    if (selectionMask) {
+                        const newMask = new Set<string>()
+                        selectionMask.forEach(k => {
+                            const [x, y] = k.split(',').map(Number)
+                            newMask.add(`${x + dx},${y + dy}`)
+                        })
+                        setSelectionMask(newMask)
+                    }
+                    if (selectionPath) {
+                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
+                    }
+                }
+                break
+            case 'KeyB': useEditorStore.getState().setActiveTool('brush'); break;
                 case 'KeyE': useEditorStore.getState().setActiveTool('eraser'); break;
                 case 'KeyG': useEditorStore.getState().setActiveTool('fill'); break;
                 case 'KeyH': useEditorStore.getState().setActiveTool('gradient'); break;
@@ -476,12 +678,37 @@ export function CanvasRenderer() {
                 case 'KeyC': useEditorStore.getState().setActiveTool('circle'); break;
                 case 'KeyI': useEditorStore.getState().setActiveTool('eyedropper'); break;
                 case 'KeyS': useEditorStore.getState().setActiveTool('select'); break;
+            case 'KeyV': useEditorStore.getState().setActiveTool('move'); break;
+            case 'KeyK': useEditorStore.getState().setActiveTool('lasso'); break;
+                case 'KeyW': useEditorStore.getState().setActiveTool('magicWand'); break;
             }
         }
     }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+        setModifiers({ shift: e.shiftKey, alt: e.altKey })
+    }
+
+    const handleGlobalMouseUp = () => {
+        if (isDragging) {
+            setIsDragging(false)
+            setStartPos(null)
+        }
+    }
+
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [undo, redo, activeTool, selection, isMovingSelection, saveSnapshot, batchUpdateCells, frames, activeFrameIndex, activeLayerId, floatingSelection, hoverPos, setSelection, setClipboard])
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    
+    return () => {
+        if (container) {
+            container.removeEventListener('mouseleave', handleMouseLeave)
+        }
+        window.removeEventListener('keydown', handleKeyDown)
+        window.removeEventListener('keyup', handleKeyUp)
+        window.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [undo, redo, activeTool, selection, selectionMask, isMovingSelection, isDragging, saveSnapshot, batchUpdateCells, frames, activeFrameIndex, activeLayerId, floatingSelection, hoverPos, setSelection, setClipboard, liftSelection, projectWidth, projectHeight])
 
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -515,6 +742,12 @@ export function CanvasRenderer() {
     while (queue.length > 0) {
         const [x, y] = queue.shift()!
         const key = `${x},${y}`
+        
+        // Skip if not in selection
+        if (!isPointInSelection(x, y)) {
+            continue
+        }
+
         const current = layer.data.get(key)
         
         updates.push({ 
@@ -603,7 +836,7 @@ export function CanvasRenderer() {
     }
 
     // Draw Selection Rect
-    if (activeTool === 'select') {
+    if (selection || (isDragging && startPos && (activeTool === 'select' || activeTool === 'lasso'))) {
         drawSelectionRect(ctx)
     }
 
@@ -613,7 +846,7 @@ export function CanvasRenderer() {
     }
 
     ctx.restore()
-  }, [pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor])
+  }, [pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, selectionMask, selectionPath, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor])
 
     // Request Animation Frame for smooth rendering
     useEffect(() => {
@@ -642,22 +875,30 @@ export function CanvasRenderer() {
   }
 
   const drawGrid = (ctx: CanvasRenderingContext2D) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    // Calculate viewport bounds in grid coordinates
+    const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+    const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+
     const width = projectWidth * GRID_SIZE
     const height = projectHeight * GRID_SIZE
 
-    // Draw Lines
     ctx.strokeStyle = '#333'
     ctx.lineWidth = 1 / zoom
 
     ctx.beginPath()
     // Vertical lines
-    for (let i = 0; i <= projectWidth; i++) {
+    for (let i = Math.max(0, viewportMinX + projectWidth / 2); i <= Math.min(projectWidth, viewportMaxX + projectWidth / 2); i++) {
       const x = -width / 2 + i * GRID_SIZE
       ctx.moveTo(x, -height / 2)
       ctx.lineTo(x, height / 2)
     }
     // Horizontal lines
-    for (let i = 0; i <= projectHeight; i++) {
+    for (let i = Math.max(0, viewportMinY + projectHeight / 2); i <= Math.min(projectHeight, viewportMaxY + projectHeight / 2); i++) {
       const y = -height / 2 + i * GRID_SIZE
       ctx.moveTo(-width / 2, y)
       ctx.lineTo(width / 2, y)
@@ -668,6 +909,15 @@ export function CanvasRenderer() {
   const drawOnionSkin = (ctx: CanvasRenderingContext2D) => {
     const prevFrame = frames[activeFrameIndex - 1]
     if (!prevFrame) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    // Calculate viewport bounds in grid coordinates to optimize drawing
+    const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+    const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
 
     ctx.save()
     ctx.globalAlpha = 0.3 // Low opacity for onion skin
@@ -683,6 +933,11 @@ export function CanvasRenderer() {
       for (const [key, cell] of layer.data.entries()) {
         const [x, y] = key.split(',').map(Number)
         
+        // Culling: Only draw if within viewport
+        if (x < viewportMinX || x > viewportMaxX || y < viewportMinY || y > viewportMaxY) {
+            continue
+        }
+
         const px = x * GRID_SIZE + GRID_SIZE / 2
         const py = y * GRID_SIZE + GRID_SIZE / 2
 
@@ -705,6 +960,15 @@ export function CanvasRenderer() {
     const frame = frames[activeFrameIndex]
     if (!frame) return
 
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    // Calculate viewport bounds in grid coordinates to optimize drawing
+    const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+    const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+
     // Font settings
     ctx.font = `${FONT_SIZE}px "Press Start 2P"`
     ctx.textAlign = 'center'
@@ -717,6 +981,11 @@ export function CanvasRenderer() {
       // Use Map iterator
       for (const [key, cell] of layer.data.entries()) {
         const [x, y] = key.split(',').map(Number)
+        
+        // Culling: Only draw if within viewport
+        if (x < viewportMinX || x > viewportMaxX || y < viewportMinY || y > viewportMaxY) {
+            continue
+        }
         
         const px = x * GRID_SIZE + GRID_SIZE / 2
         const py = y * GRID_SIZE + GRID_SIZE / 2
@@ -750,6 +1019,15 @@ export function CanvasRenderer() {
   const drawFloatingSelection = (ctx: CanvasRenderingContext2D) => {
       if (!floatingSelection || !selection) return
 
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      // Calculate viewport bounds in grid coordinates to optimize drawing
+      const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+      const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+      const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+      const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+
       ctx.font = `${FONT_SIZE}px "Press Start 2P"`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -758,6 +1036,11 @@ export function CanvasRenderer() {
           const x = selection.x + item.dx
           const y = selection.y + item.dy
           
+          // Culling: Only draw if within viewport
+          if (x < viewportMinX || x > viewportMaxX || y < viewportMinY || y > viewportMaxY) {
+              return
+          }
+
           const px = x * GRID_SIZE + GRID_SIZE / 2
           const py = y * GRID_SIZE + GRID_SIZE / 2
 
@@ -779,36 +1062,103 @@ export function CanvasRenderer() {
   }
 
   const drawSelectionRect = (ctx: CanvasRenderingContext2D) => {
+      const mask = selectionMask
       let rect = selection
+      
+      const currentMode = (modifiers.shift && modifiers.alt) ? 'intersect' : 
+                          (modifiers.shift ? 'add' : 
+                          (modifiers.alt ? 'subtract' : 
+                          (lastEventRef.current?.ctrlKey ? 'new' : selectionMode)))
 
-      // If dragging to select, calculate temporary rect
-      if (isDragging && !isMovingSelection && startPos && hoverPos) {
-          const minX = Math.min(startPos.x, hoverPos.x)
-          const maxX = Math.max(startPos.x, hoverPos.x)
-          const minY = Math.min(startPos.y, hoverPos.y)
-          const maxY = Math.max(startPos.y, hoverPos.y)
-          rect = {
-              x: minX,
-              y: minY,
-              w: maxX - minX + 1,
-              h: maxY - minY + 1
-          }
-      }
-
-      if (rect) {
-          const px = rect.x * GRID_SIZE
-          const py = rect.y * GRID_SIZE
-          const pw = rect.w * GRID_SIZE
-          const ph = rect.h * GRID_SIZE
-
+      // Lasso Path Preview
+      if (activeTool === 'lasso' && isDragging && selectionPath && selectionPath.length > 0) {
           ctx.save()
           ctx.strokeStyle = '#fff'
           ctx.lineWidth = 1 / zoom
           ctx.setLineDash([5 / zoom, 5 / zoom])
-          ctx.strokeRect(px, py, pw, ph)
+          ctx.beginPath()
+          selectionPath.forEach((p, i) => {
+              const px = p.x * GRID_SIZE + GRID_SIZE / 2
+              const py = p.y * GRID_SIZE + GRID_SIZE / 2
+              if (i === 0) ctx.moveTo(px, py)
+              else ctx.lineTo(px, py)
+          })
           
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-          ctx.fillRect(px, py, pw, ph)
+          // Connect to current hover position to show pending segment
+          if (hoverPos) {
+              const hpx = hoverPos.x * GRID_SIZE + GRID_SIZE / 2
+              const hpy = hoverPos.y * GRID_SIZE + GRID_SIZE / 2
+              ctx.lineTo(hpx, hpy)
+          }
+          
+          ctx.stroke()
+          
+          // Draw small points at path vertices
+          ctx.fillStyle = '#fff'
+          selectionPath.forEach(p => {
+              const px = p.x * GRID_SIZE + GRID_SIZE / 2
+              const py = p.y * GRID_SIZE + GRID_SIZE / 2
+              ctx.fillRect(px - 2/zoom, py - 2/zoom, 4/zoom, 4/zoom)
+          })
+          
+          ctx.restore()
+      }
+
+      if (rect || tempMask) {
+          ctx.save()
+          ctx.strokeStyle = '#fff'
+          ctx.lineWidth = 1 / zoom
+          ctx.setLineDash([5 / zoom, 5 / zoom])
+          
+          // 1. Draw existing selection
+          if (mask) {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+              mask.forEach(key => {
+                  const [x, y] = key.split(',').map(Number)
+                  const px = x * GRID_SIZE
+                  const py = y * GRID_SIZE
+                  ctx.fillRect(px, py, GRID_SIZE, GRID_SIZE)
+                  
+                  const neighbors = [[1,0], [-1,0], [0,1], [0,-1]]
+                  neighbors.forEach(([dx, dy]) => {
+                      if (!mask!.has(`${x+dx},${y+dy}`)) {
+                          ctx.beginPath()
+                          if (dx === 1) { ctx.moveTo(px + GRID_SIZE, py); ctx.lineTo(px + GRID_SIZE, py + GRID_SIZE) }
+                          if (dx === -1) { ctx.moveTo(px, py); ctx.lineTo(px, py + GRID_SIZE) }
+                          if (dy === 1) { ctx.moveTo(px, py + GRID_SIZE); ctx.lineTo(px + GRID_SIZE, py + GRID_SIZE) }
+                          if (dy === -1) { ctx.moveTo(px, py); ctx.lineTo(px + GRID_SIZE, py) }
+                          ctx.stroke()
+                      }
+                  })
+              })
+          } else if (rect) {
+              const px = rect.x * GRID_SIZE
+              const py = rect.y * GRID_SIZE
+              const pw = rect.w * GRID_SIZE
+              const ph = rect.h * GRID_SIZE
+              ctx.strokeRect(px, py, pw, ph)
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+              ctx.fillRect(px, py, pw, ph)
+          }
+
+          // 2. Draw preview of what's being dragged (Temp Mask)
+          if (tempMask) {
+              if (currentMode === 'add') {
+                  ctx.fillStyle = 'rgba(0, 255, 0, 0.3)'
+              } else if (currentMode === 'subtract') {
+                  ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'
+              } else if (currentMode === 'intersect') {
+                  ctx.fillStyle = 'rgba(0, 255, 255, 0.3)'
+              } else {
+                  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'
+              }
+
+              tempMask.forEach(key => {
+                  const [x, y] = key.split(',').map(Number)
+                  ctx.fillRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE)
+              })
+          }
+          
           ctx.restore()
       }
   }
@@ -844,8 +1194,10 @@ export function CanvasRenderer() {
           ctx.save()
           // Iterate over the affected area
           for (let y = minY; y <= maxY; y++) {
-              for (let x = minX; x <= maxX; x++) {
-                  let factor = 0
+               for (let x = minX; x <= maxX; x++) {
+                   if (!isPointInSelection(x, y)) continue
+
+                   let factor = 0
 
                   if (gradientType === 'linear') {
                       if (lenSq === 0) factor = 0
@@ -905,6 +1257,8 @@ export function CanvasRenderer() {
               return
           }
 
+          if (!isPointInSelection(p.x, p.y)) return
+
           const px = p.x * GRID_SIZE + GRID_SIZE / 2
           const py = p.y * GRID_SIZE + GRID_SIZE / 2
           
@@ -953,16 +1307,15 @@ export function CanvasRenderer() {
     if (!canvas) return { x: 0, y: 0 }
     
     const rect = canvas.getBoundingClientRect()
-    const x = (e.clientX - rect.left - canvas.width / 2 - pan.x) / zoom
-    const y = (e.clientY - rect.top - canvas.height / 2 - pan.y) / zoom
+    // Using Math.floor for grid alignment
+    const x = Math.floor((e.clientX - rect.left - canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
+    const y = Math.floor((e.clientY - rect.top - canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
     
-    return {
-      x: Math.floor(x / GRID_SIZE),
-      y: Math.floor(y / GRID_SIZE)
-    }
+    return { x, y }
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    lastEventRef.current = e
     if (e.button === 1) { // Middle click for panning
       setIsDragging(true)
       lastMousePos.current = { x: e.clientX, y: e.clientY }
@@ -974,42 +1327,115 @@ export function CanvasRenderer() {
     
     // Check Bounds
     const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
-    if (isOutOfBounds && activeTool !== 'select') return
+    if (isOutOfBounds && (activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand')) return
 
-    if (activeTool === 'select') {
+    if (activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand' || activeTool === 'move') {
         // Prevent Right Click from starting selection
         if (isRightClick.current) return
 
         // Check if clicking inside existing selection
         let clickedInside = false
         if (selection) {
-            clickedInside = pos.x >= selection.x && pos.x < selection.x + selection.w &&
-                            pos.y >= selection.y && pos.y < selection.y + selection.h
+            if (selectionMask) {
+                clickedInside = selectionMask.has(`${pos.x},${pos.y}`)
+            } else {
+                clickedInside = pos.x >= selection.x && pos.x < selection.x + selection.w &&
+                                pos.y >= selection.y && pos.y < selection.y + selection.h
+            }
         }
 
-        if (clickedInside && selection) {
-            if (floatingSelection) {
-                // Already floating, just grab it
-                setIsMovingSelection(true)
-                setDragOffset({
-                    x: pos.x - selection.x,
-                    y: pos.y - selection.y
-                })
-            } else {
-                // Lift selection from canvas
-                const items = liftSelection()
-                if (items) {
+        // Determine effective mode based on modifiers
+        const isModifierActive = e.shiftKey || e.altKey || e.ctrlKey
+        const isShiftAlt = e.shiftKey || e.altKey
+        const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
+                               (e.shiftKey ? 'add' : 
+                               (e.altKey ? 'subtract' : 
+                               (e.ctrlKey ? 'new' : selectionMode)))
+
+        // Move logic: 
+        // 1. If 'move' tool is active, we move if there's a selection (clicked anywhere) or we move layer if no selection
+        // 2. If selection tool is active, we only move if clicked inside and NO modifiers are held (except Ctrl which forces move/new)
+        const shouldMove = (activeTool === 'move') || (clickedInside && selection && !isShiftAlt && (selectionMode === 'new' || e.ctrlKey))
+
+        if (shouldMove) {
+            setIsDragging(true)
+            if (selection) {
+                // Check for Alt key to duplicate (Copy instead of Lift)
+                const isDuplicate = e.altKey
+
+                if (floatingSelection) {
                     setIsMovingSelection(true)
-                    setDragOffset({
-                        x: pos.x - selection.x,
-                        y: pos.y - selection.y
-                    })
+                    setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
+                } else {
+                    if (isDuplicate) {
+                        const frame = frames[activeFrameIndex]
+                        const activeLayer = frame?.layers.find(l => l.id === activeLayerId)
+                        const items: {dx: number, dy: number, data: any}[] = []
+                        if (activeLayer) {
+                            for(let y = 0; y < selection.h; y++) {
+                                for(let x = 0; x < selection.w; x++) {
+                                    const key = `${selection.x + x},${selection.y + y}`
+                                    if (selectionMask && !selectionMask.has(key)) continue
+                                    const cell = activeLayer.data.get(key)
+                                    if (cell && (cell.char || cell.bgColor)) {
+                                        items.push({ dx: x, dy: y, data: { ...cell } })
+                                    }
+                                }
+                            }
+                        }
+                        setFloatingSelection(items)
+                        setIsMovingSelection(true)
+                        setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
+                    } else {
+                        const items = liftSelection()
+                        if (items) {
+                            setIsMovingSelection(true)
+                            setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
+                        }
+                    }
                 }
+            } else if (activeTool === 'move') {
+                // Move whole layer: lift EVERYTHING
+        const frame = frames[activeFrameIndex]
+        const layer = frame?.layers.find(l => l.id === activeLayerId)
+        if (layer && layer.data.size > 0) {
+            saveSnapshot()
+            const items: {dx: number, dy: number, data: any}[] = []
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+            
+            layer.data.forEach((cell, key) => {
+                const [x, y] = key.split(',').map(Number)
+                minX = Math.min(minX, x); minY = Math.min(minY, y)
+                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y)
+            })
+
+            layer.data.forEach((cell, key) => {
+                const [x, y] = key.split(',').map(Number)
+                items.push({ dx: x - minX, dy: y - minY, data: { ...cell } })
+            })
+
+            // Clear original layer data for lifting effect
+            const emptyData = new Map()
+            useProjectStore.getState().updateLayer(activeLayerId, { data: emptyData })
+            
+            const newSelection = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
+            setSelection(newSelection)
+            setFloatingSelection(items)
+            setIsMovingSelection(true)
+            setDragOffset({ x: pos.x - minX, y: pos.y - minY })
+        } else if (layer) {
+            // Layer is empty, but we might want to "start dragging" to avoid errors
+            // or just do nothing. To avoid errors in handleMouseMove, we don't set isMovingSelection
+        }
             }
-        } else {
-            // New selection start
-            // Commit previous floating if exists
-            if (floatingSelection && selection) {
+            return
+        }
+
+        // Selection logic (if not moving)
+        if (activeTool !== 'move') {
+            // Commit previous floating if exists and we are starting a NEW selection action
+            // or if we are clicking outside the current floating selection to drop it
+            if (floatingSelection && selection && (effectiveMode === 'new' || !clickedInside)) {
                 saveSnapshot()
                 const updates = floatingSelection.map(item => ({
                     x: selection.x + item.dx,
@@ -1018,11 +1444,88 @@ export function CanvasRenderer() {
                 }))
                 batchUpdateCells(updates)
                 setFloatingSelection(null)
+                setSelection(null)
+                setSelectionMask(null)
             }
             
-            setSelection(null)
-            setIsDragging(true)
-            setStartPos(pos)
+            if (activeTool === 'magicWand') {
+                const frame = frames[activeFrameIndex]
+                const layer = frame?.layers.find(l => l.id === activeLayerId)
+                if (layer) {
+                    const startKey = `${pos.x},${pos.y}`
+                    const startCell = layer.data.get(startKey)
+                    const targetChar = startCell?.char || ''
+                    const targetColor = startCell?.color || ''
+                    
+                    const mask = new Set<string>()
+                    const queue: [number, number][] = [[pos.x, pos.y]]
+                    mask.add(startKey)
+                    
+                    let minX = pos.x, maxX = pos.x, minY = pos.y, maxY = pos.y
+
+                    while (queue.length > 0) {
+                        const [x, y] = queue.shift()!
+                        minX = Math.min(minX, x); maxX = Math.max(maxX, x)
+                        minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+                        const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]]
+                        for (const [nx, ny] of neighbors) {
+                            const key = `${nx},${ny}`
+                            if (nx < -projectWidth/2 || nx >= projectWidth/2 || ny < -projectHeight/2 || ny >= projectHeight/2) continue
+                            if (mask.has(key)) continue
+                            const cell = layer.data.get(key)
+                            const currentChar = cell?.char || ''
+                            const currentColor = cell?.color || ''
+                            let isMatch = false
+                            if (wandMode === 'char') {
+                                isMatch = currentChar === targetChar
+                            } else {
+                                if (targetColor === currentColor) isMatch = true
+                                else if (wandTolerance > 0 && targetColor && currentColor) {
+                                    const c1 = hexToRgb(targetColor)
+                                    const c2 = hexToRgb(currentColor)
+                                    const dist = Math.sqrt(Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2))
+                                    isMatch = (dist / 441.67 * 100) <= wandTolerance
+                                }
+                            }
+                            if (isMatch) { mask.add(key); queue.push([nx, ny]) }
+                        }
+                    }
+                    
+                    if (effectiveMode === 'new') {
+                        setSelectionMask(mask)
+                        setSelection({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 })
+                    } else if (effectiveMode === 'add') {
+                        const newMask = new Set(selectionMask || [])
+                        mask.forEach(k => newMask.add(k))
+                        setSelectionMask(newMask); updateSelectionBounds(newMask)
+                    } else if (effectiveMode === 'subtract') {
+                        const newMask = new Set(selectionMask || [])
+                        mask.forEach(k => newMask.delete(k))
+                        setSelectionMask(newMask); updateSelectionBounds(newMask)
+                    } else if (effectiveMode === 'intersect') {
+                        const currentMask = new Set<string>()
+                        if (selectionMask) selectionMask.forEach(k => currentMask.add(k))
+                        else if (selection) {
+                            for (let sy = selection.y; sy < selection.y + selection.h; sy++)
+                                for (let sx = selection.x; sx < selection.x + selection.w; sx++)
+                                    currentMask.add(`${sx},${sy}`)
+                        }
+                        const newMask = new Set<string>()
+                        mask.forEach(k => { if (currentMask.has(k)) newMask.add(k) })
+                        setSelectionMask(newMask); updateSelectionBounds(newMask)
+                    }
+                }
+            } else {
+                // Rectangle or Lasso
+                if (effectiveMode === 'new') {
+                    setSelection(null)
+                    setSelectionPath(null)
+                    setSelectionMask(null)
+                }
+                setIsDragging(true)
+                setStartPos(pos)
+                if (activeTool === 'lasso') setSelectionPath([pos])
+            }
         }
         return
     }
@@ -1039,13 +1542,17 @@ export function CanvasRenderer() {
             const layer = frame?.layers.find(l => l.id === activeLayerId)
             const current = layer?.data.get(`${pos.x},${pos.y}`)
             
-            setCell(pos.x, pos.y, { 
-                char, 
-                color, 
-                bgColor: current?.bgColor || '' 
-            })
+            if (isPointInSelection(pos.x, pos.y)) {
+                setCell(pos.x, pos.y, { 
+                    char, 
+                    color, 
+                    bgColor: current?.bgColor || '' 
+                })
+            }
         } else if (activeTool === 'eraser') {
-            setCell(pos.x, pos.y, { char: '', color: '' })
+            if (isPointInSelection(pos.x, pos.y)) {
+                setCell(pos.x, pos.y, { char: '', color: '' })
+            }
         } else if (activeTool === 'fill') {
             const char = isRightClick.current ? secondaryChar : brushChar
             const color = isRightClick.current ? secondaryColor : brushColor
@@ -1068,6 +1575,7 @@ export function CanvasRenderer() {
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    lastEventRef.current = e
     if (isDragging && e.buttons === 4) { // Panning
       const dx = e.clientX - lastMousePos.current.x
       const dy = e.clientY - lastMousePos.current.y
@@ -1080,17 +1588,92 @@ export function CanvasRenderer() {
     setHoverPos(pos)
 
     if (isDragging) {
-        // Handle Moving Selection
-        if (activeTool === 'select' && isMovingSelection && selection) {
-            setSelection({
-                ...selection,
-                x: pos.x - dragOffset.x,
-                y: pos.y - dragOffset.y
-            })
+        // Drawing logic with clipping
+        const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
+        
+        // Selection preview color logic
+        let previewColor = 'rgba(255, 255, 255, 0.3)' // Default for NEW
+        if (e.shiftKey && e.altKey) {
+            previewColor = 'rgba(255, 255, 0, 0.3)' // Yellow for INTERSECT
+        } else if (e.shiftKey) {
+            previewColor = 'rgba(0, 255, 0, 0.3)' // Green for ADD
+        } else if (e.altKey) {
+            previewColor = 'rgba(255, 0, 0, 0.3)' // Red for SUBTRACT
+        }
+
+        // Handle Temp Mask for selection tools (RECTANGLE ONLY)
+        if (activeTool === 'select' && !isMovingSelection && startPos) {
+            const minX = Math.min(startPos.x, pos.x)
+            const maxX = Math.max(startPos.x, pos.x)
+            const minY = Math.min(startPos.y, pos.y)
+            const maxY = Math.max(startPos.y, pos.y)
+            const newTemp = new Set<string>()
+            for (let ty = minY; ty <= maxY; ty++) {
+                for (let tx = minX; tx <= maxX; tx++) {
+                    newTemp.add(`${tx},${ty}`)
+                }
+            }
+            setTempMask(newTemp)
+        }
+
+        const isModifierActive = e.shiftKey || e.altKey || e.ctrlKey
+
+        // Handle Lasso Path recording
+        if (activeTool === 'lasso' && !isMovingSelection) {
+            if (selectionPath) {
+                const lastPos = selectionPath[selectionPath.length - 1]
+                if (lastPos.x !== pos.x || lastPos.y !== pos.y) {
+                    const newPath = [...selectionPath, pos]
+                    setSelectionPath(newPath)
+                    
+                    // Update temp mask for lasso preview
+                    const newTemp = new Set<string>()
+                    newPath.forEach(p => newTemp.add(`${p.x},${p.y}`))
+                    // For better preview, connect dots with lines
+                    for (let i = 0; i < newPath.length - 1; i++) {
+                        const line = getLinePoints(newPath[i].x, newPath[i].y, newPath[i+1].x, newPath[i+1].y)
+                        line.forEach(p => newTemp.add(`${p.x},${p.y}`))
+                    }
+                    setTempMask(newTemp)
+                }
+            }
             return
         }
 
-        const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
+        // Handle Moving Selection
+        if ((activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand' || activeTool === 'move') && isMovingSelection && selection) {
+            const newX = pos.x - dragOffset.x
+            const newY = pos.y - dragOffset.y
+            const dx = newX - selection.x
+            const dy = newY - selection.y
+            
+            if (dx !== 0 || dy !== 0) {
+                setSelection({
+                    ...selection,
+                    x: newX,
+                    y: newY
+                })
+                
+                if (selectionMask) {
+                    const newMask = new Set<string>()
+                    selectionMask.forEach(key => {
+                        const [x, y] = key.split(',').map(Number)
+                        newMask.add(`${x + dx},${y + dy}`)
+                    })
+                    setSelectionMask(newMask)
+                }
+
+                if (selectionPath) {
+                    const newPath = selectionPath.map(p => ({
+                        x: p.x + dx,
+                        y: p.y + dy
+                    }))
+                    setSelectionPath(newPath)
+                }
+            }
+            return
+        }
+
         if (isOutOfBounds) return
 
         if (activeTool === 'brush') {
@@ -1101,13 +1684,17 @@ export function CanvasRenderer() {
             const layer = frame?.layers.find(l => l.id === activeLayerId)
             const current = layer?.data.get(`${pos.x},${pos.y}`)
 
-            setCell(pos.x, pos.y, { 
-                char, 
-                color,
-                bgColor: current?.bgColor || ''
-            })
+            if (isPointInSelection(pos.x, pos.y)) {
+                setCell(pos.x, pos.y, { 
+                    char, 
+                    color,
+                    bgColor: current?.bgColor || ''
+                })
+            }
         } else if (activeTool === 'eraser') {
-            setCell(pos.x, pos.y, { char: '', color: '' })
+            if (isPointInSelection(pos.x, pos.y)) {
+                setCell(pos.x, pos.y, { char: '', color: '' })
+            }
         } else if (activeTool === 'eyedropper') {
             const frame = frames[activeFrameIndex]
             const layer = frame?.layers.find(l => l.id === activeLayerId)
@@ -1126,13 +1713,19 @@ export function CanvasRenderer() {
   }
 
   const handleMouseUp = (e: React.MouseEvent) => {
+    lastEventRef.current = e
     // If buttons are still pressed (e.g. switching from L+R to just L), don't stop dragging
     if (e.buttons !== 0) {
         isRightClick.current = (e.buttons & 2) === 2
         return
     }
 
+    if (activeTool === 'brush' || activeTool === 'eraser') {
+        saveSnapshot()
+    }
+
     setIsDragging(false)
+    setTempMask(null)
     
     if (isMovingSelection) {
         // Stop moving, but KEEP floating selection active
@@ -1141,32 +1734,267 @@ export function CanvasRenderer() {
         return
     }
 
-    if (activeTool === 'select' && startPos && hoverPos) {
-        // Finalize selection rect
-        const minX = Math.min(startPos.x, hoverPos.x)
-        const maxX = Math.max(startPos.x, hoverPos.x)
-        const minY = Math.min(startPos.y, hoverPos.y)
-        const maxY = Math.max(startPos.y, hoverPos.y)
-        
-        // Ensure within grid?
-        // Let's clip to grid
-        const clippedMinX = Math.max(minX, -projectWidth/2)
-        const clippedMaxX = Math.min(maxX, projectWidth/2 - 1)
-        const clippedMinY = Math.max(minY, -projectHeight/2)
-        const clippedMaxY = Math.min(maxY, projectHeight/2 - 1)
+    if ((activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand') && startPos && hoverPos) {
+        if (activeTool === 'select') {
+            // Finalize selection rect
+            const minX = Math.min(startPos.x, hoverPos.x)
+            const maxX = Math.max(startPos.x, hoverPos.x)
+            const minY = Math.min(startPos.y, hoverPos.y)
+            const maxY = Math.max(startPos.y, hoverPos.y)
+            
+            // Clip to grid
+            const clippedMinX = Math.max(minX, -projectWidth/2)
+            const clippedMaxX = Math.min(maxX, projectWidth/2 - 1)
+            const clippedMinY = Math.max(minY, -projectHeight/2)
+            const clippedMaxY = Math.min(maxY, projectHeight/2 - 1)
 
-        if (clippedMinX <= clippedMaxX && clippedMinY <= clippedMaxY) {
-            setSelection({
-                x: clippedMinX,
-                y: clippedMinY,
-                w: clippedMaxX - clippedMinX + 1,
-                h: clippedMaxY - clippedMinY + 1
-            })
-        } else {
-            setSelection(null)
+            if (clippedMinX <= clippedMaxX && clippedMinY <= clippedMaxY) {
+                const newRect = {
+                    x: clippedMinX,
+                    y: clippedMinY,
+                    w: clippedMaxX - clippedMinX + 1,
+                    h: clippedMaxY - clippedMinY + 1
+                }
+
+                const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
+                                       (e.shiftKey ? 'add' : 
+                                       (e.altKey ? 'subtract' : 
+                                       (e.ctrlKey ? 'new' : selectionMode)))
+
+                if (effectiveMode === 'new') {
+                    setSelectionMask(null)
+                    setSelection(newRect)
+                } else {
+                    // Convert rect to mask and apply operation
+                    const rectMask = new Set<string>()
+                    for (let ry = newRect.y; ry < newRect.y + newRect.h; ry++) {
+                        for (let rx = newRect.x; rx < newRect.x + newRect.w; rx++) {
+                            rectMask.add(`${rx},${ry}`)
+                        }
+                    }
+
+                    if (effectiveMode === 'add') {
+                        const newMask = new Set(selectionMask || [])
+                        // If no mask but we have a selection rect, add it first
+                        if (!selectionMask && selection) {
+                            for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                                for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                    newMask.add(`${sx},${sy}`)
+                                }
+                            }
+                        }
+                        rectMask.forEach(k => newMask.add(k))
+                        setSelectionMask(newMask)
+                        updateSelectionBounds(newMask)
+                    } else if (effectiveMode === 'subtract') {
+                        const newMask = new Set(selectionMask || [])
+                        if (!selectionMask && selection) {
+                            for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                                for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                    newMask.add(`${sx},${sy}`)
+                                }
+                            }
+                        }
+                        rectMask.forEach(k => newMask.delete(k))
+                        setSelectionMask(newMask)
+                        updateSelectionBounds(newMask)
+                    } else if (effectiveMode === 'intersect') {
+                        const currentMask = new Set<string>()
+                        if (selectionMask) {
+                            selectionMask.forEach(k => currentMask.add(k))
+                        } else if (selection) {
+                            for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                                for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                    currentMask.add(`${sx},${sy}`)
+                                }
+                            }
+                        }
+                        
+                        const newMask = new Set<string>()
+                        rectMask.forEach(k => {
+                            if (currentMask.has(k)) newMask.add(k)
+                        })
+                        setSelectionMask(newMask)
+                        updateSelectionBounds(newMask)
+                    }
+                }
+            } else if (selectionMode === 'new' && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+                setSelection(null)
+                setSelectionMask(null)
+            }
+            setStartPos(null)
+            isRightClick.current = false
+            return
         }
+
+        if (activeTool === 'lasso' && selectionPath && selectionPath.length > 2) {
+            // Convert path to mask using scanline or point-in-polygon
+            const mask = new Set<string>()
+            
+            // Ray casting algorithm for point in polygon
+            const isPointInPoly = (x: number, y: number, poly: {x: number, y: number}[]) => {
+                let inside = false
+                for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                    const xi = poly[i].x, yi = poly[i].y
+                    const xj = poly[j].x, yj = poly[j].y
+                    
+                    // Line intersection check for the cell center
+                    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+                    if (intersect) inside = !inside
+                }
+                return inside
+            }
+
+            // Aseprite-style lasso: 
+            // 1. Mark EVERY cell the path touches (Supercover line algorithm)
+            const markSupercover = (p1: Position, p2: Position) => {
+                const hw = Math.floor(projectWidth / 2)
+                const hh = Math.floor(projectHeight / 2)
+                let x0 = p1.x + hw
+                let y0 = p1.y + hh
+                let x1 = p2.x + hw
+                let y1 = p2.y + hh
+
+                let dx = Math.abs(x1 - x0)
+                let dy = Math.abs(y1 - y0)
+                let x = Math.floor(x0)
+                let y = Math.floor(y0)
+                let n = 1
+                let x_inc, y_inc
+                let error
+
+                if (dx === 0) {
+                    x_inc = 0
+                    error = Infinity
+                } else if (x1 > x0) {
+                    x_inc = 1
+                    n += Math.floor(x1) - x
+                    error = (Math.floor(x0) + 1 - x0) * dy
+                } else {
+                    x_inc = -1
+                    n += x - Math.floor(x1)
+                    error = (x0 - Math.floor(x0)) * dy
+                }
+
+                if (dy === 0) {
+                    y_inc = 0
+                    error -= Infinity
+                } else if (y1 > y0) {
+                    y_inc = 1
+                    n += Math.floor(y1) - y
+                    error -= (Math.floor(y0) + 1 - y0) * dx
+                } else {
+                    y_inc = -1
+                    n += y - Math.floor(y1)
+                    error -= (y0 - Math.floor(y0)) * dx
+                }
+
+                for (; n > 0; --n) {
+                    if (x >= 0 && x < projectWidth && y >= 0 && y < projectHeight) {
+                        grid[y][x] = true
+                    }
+
+                    if (error > 0) {
+                        y += y_inc
+                        error -= dx
+                    } else if (error < 0) {
+                        x += x_inc
+                        error += dy
+                    } else {
+                        x += x_inc
+                        y += y_inc
+                        error += dy - dx
+                        --n
+                        if (x >= 0 && x < projectWidth && y >= 0 && y < projectHeight) {
+                            grid[y][x] = true
+                        }
+                    }
+                }
+            }
+
+            const grid: boolean[][] = Array.from({ length: projectHeight }, () => Array(projectWidth).fill(false))
+            
+            for (let i = 0; i < selectionPath.length; i++) {
+                markSupercover(selectionPath[i], selectionPath[(i + 1) % selectionPath.length])
+            }
+
+            // 2. Fill the interior using isPointInPoly for centers
+            for (let y = 0; y < projectHeight; y++) {
+                for (let x = 0; x < projectWidth; x++) {
+                    const cellX = x - Math.floor(projectWidth / 2)
+                    const cellY = y - Math.floor(projectHeight / 2)
+                    if (grid[y][x] || isPointInPoly(cellX + 0.5, cellY + 0.5, selectionPath)) {
+                        mask.add(`${cellX},${cellY}`)
+                    }
+                }
+            }
+
+            if (mask.size > 0) {
+                const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
+                                       (e.shiftKey ? 'add' : 
+                                       (e.altKey ? 'subtract' : 
+                                       (e.ctrlKey ? 'new' : selectionMode)))
+
+                if (effectiveMode === 'new') {
+                    setSelectionMask(mask)
+                    updateSelectionBounds(mask)
+                } else if (effectiveMode === 'add') {
+                    const newMask = new Set(selectionMask || [])
+                    if (!selectionMask && selection) {
+                        for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                            for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                newMask.add(`${sx},${sy}`)
+                            }
+                        }
+                    }
+                    mask.forEach(k => newMask.add(k))
+                    setSelectionMask(newMask)
+                    updateSelectionBounds(newMask)
+                } else if (effectiveMode === 'subtract') {
+                    const newMask = new Set(selectionMask || [])
+                    if (!selectionMask && selection) {
+                        for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                            for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                newMask.add(`${sx},${sy}`)
+                            }
+                        }
+                    }
+                    mask.forEach(k => newMask.delete(k))
+                    setSelectionMask(newMask)
+                    updateSelectionBounds(newMask)
+                } else if (effectiveMode === 'intersect') {
+                    const currentMask = new Set<string>()
+                    if (selectionMask) {
+                        selectionMask.forEach(k => currentMask.add(k))
+                    } else if (selection) {
+                        for (let sy = selection.y; sy < selection.y + selection.h; sy++) {
+                            for (let sx = selection.x; sx < selection.x + selection.w; sx++) {
+                                currentMask.add(`${sx},${sy}`)
+                            }
+                        }
+                    }
+                    const newMask = new Set<string>()
+                    mask.forEach(k => {
+                        if (currentMask.has(k)) newMask.add(k)
+                    })
+                    setSelectionMask(newMask)
+                    updateSelectionBounds(newMask)
+                }
+            } else if (e.shiftKey || e.altKey || e.ctrlKey) {
+                // Keep existing selection if just a single click with modifier
+            } else if (selectionMode === 'new') {
+                setSelectionMask(null)
+                setSelection(null)
+            }
+            setSelectionPath(null)
+            setStartPos(null)
+            return
+        }
+    }
+
+    if (activeTool === 'magicWand' && startPos) {
+        // Handled in handleMouseDown
         setStartPos(null)
-        isRightClick.current = false
         return
     }
 
@@ -1207,8 +2035,10 @@ export function CanvasRenderer() {
              const useBg = !char || char === ' '
 
              for (let y = minY; y <= maxY; y++) {
-                for (let x = minX; x <= maxX; x++) {
-                    let factor = 0
+               for (let x = minX; x <= maxX; x++) {
+                   if (!isPointInSelection(x, y)) continue
+                   
+                   let factor = 0
                     if (gradientType === 'linear') {
                         if (lenSq === 0) factor = 0
                         else {
@@ -1256,6 +2086,8 @@ export function CanvasRenderer() {
                 if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
                     p.y < -projectHeight / 2 || p.y >= projectHeight / 2) return
                 
+                if (!isPointInSelection(p.x, p.y)) return
+
                 const current = layer?.data.get(`${p.x},${p.y}`)
                 updates.push({
                     x: p.x,
@@ -1274,26 +2106,6 @@ export function CanvasRenderer() {
     }
     isRightClick.current = false
   }
-
-  // Animation Loop
-  useEffect(() => {
-    let animationFrameId: number
-    
-    const render = () => {
-      draw()
-      animationFrameId = requestAnimationFrame(render)
-    }
-    
-    render()
-    
-    return () => {
-      cancelAnimationFrame(animationFrameId)
-    }
-  }, [
-      zoom, pan, activeTool, brushChar, brushColor, secondaryChar, secondaryColor, onionSkinEnabled, 
-      frames, activeFrameIndex, hoverPos, startPos, isDragging, 
-      selection, floatingSelection, isMovingSelection, gradientType, gradientColorStart, gradientColorEnd
-    ])
 
   return (
     <div 

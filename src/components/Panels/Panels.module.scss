@@ -112,6 +112,34 @@
   }
 }
 
+.toolSelect {
+  flex: 1;
+  max-width: 120px;
+}
+
+select.charInput {
+  height: 48px;
+  padding: 0 16px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23FFCC00' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 20px;
+  font-size: 14px;
+  font-family: 'Press Start 2P', monospace;
+  border-color: var(--accent);
+  color: var(--accent);
+  
+  option {
+    background-color: var(--bg-darker);
+    color: var(--accent);
+    padding: 16px;
+    font-size: 14px;
+    border: none;
+  }
+}
+
 .colorInput {
   width: 40px;
   height: 40px;
@@ -152,6 +180,36 @@
   }
 }
 
+.selectionModes {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.modeBtn {
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background-color: var(--accent);
+    color: var(--bg-dark);
+    border-color: var(--accent);
+  }
+}
+
 .layersList {
   flex: 1;
   overflow-y: auto;
@@ -164,14 +222,18 @@
 .layerItem {
   display: flex;
   align-items: center;
-  padding: 8px;
+  padding: 12px;
   background-color: var(--bg-dark);
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   cursor: pointer;
   font-size: 10px;
+  min-height: 48px;
+  position: relative;
+  transition: all 0.2s;
 
   &:hover {
-    border-color: var(--text-secondary);
+    border-color: var(--accent);
+    background-color: rgba(255, 204, 0, 0.05);
 
     .layerActions {
       display: flex;
@@ -180,7 +242,8 @@
 
   &.active {
     border-color: var(--accent);
-    background-color: rgba(255, 204, 0, 0.1);
+    background-color: rgba(255, 204, 0, 0.15);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 
   .visibilityBtn {
@@ -188,13 +251,14 @@
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 4px;
-    margin-right: 8px;
+    padding: 6px;
+    margin-right: 12px;
     display: flex;
     align-items: center;
+    transition: color 0.2s;
     
     &:hover {
-      color: var(--text-primary);
+      color: var(--accent);
     }
   }
 
@@ -203,27 +267,76 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10px;
+    font-size: 11px;
     cursor: default;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .layerRenameInput {
     flex: 1;
-    background: #111;
-    border: 1px solid var(--accent);
-    color: #fff;
+    background: transparent;
+    border: none;
+    color: var(--accent);
     font-family: 'Press Start 2P', monospace;
-    font-size: 8px;
-    padding: 2px 4px;
+    font-size: 11px;
+    padding: 0;
     outline: none;
-    width: 0; // Allow flex to control width
+    width: 100%;
+    text-transform: uppercase;
   }
 
   .layerActions {
     display: none;
-    gap: 4px;
-    margin-left: 8px;
+    gap: 6px;
+    margin-left: 12px;
+    background-color: var(--bg-dark);
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
   }
+}
+
+.addLayerContainer {
+  margin-bottom: 8px;
+}
+
+.addLayerBtn {
+  width: 100%;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+
+  &:hover {
+    border-color: var(--accent);
+    background-color: rgba(255, 204, 0, 0.05);
+  }
+}
+
+.opacitySeparator {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 8px 0;
+  width: 100%;
+}
+
+.addLayerForm {
+  width: 100%;
 }
 
 .iconBtnSmall {

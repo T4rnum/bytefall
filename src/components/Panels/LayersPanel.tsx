@@ -19,6 +19,8 @@ export const LayersPanel = () => {
   } = useProjectStore()
 
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [newLayerName, setNewLayerName] = useState('')
+  const [isAddingLayer, setIsAddingLayer] = useState(false)
   const activeFrame = frames[activeFrameIndex]
   const activeLayer = activeFrame.layers.find(l => l.id === activeLayerId)
 
@@ -27,19 +29,42 @@ export const LayersPanel = () => {
     setEditingId(null)
   }
 
+  const handleAddLayer = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const name = newLayerName.trim() || `Layer ${activeFrame.layers.length + 1}`
+    addLayer(name)
+    setNewLayerName('')
+    setIsAddingLayer(false)
+  }
+
   return (
     <div className={styles.panelContainer}>
-      <div className={styles.panelHeader}>
-        <span>LAYERS</span>
-        <button 
-          className={styles.iconBtn} 
-          onClick={() => addLayer(`Layer ${activeFrame.layers.length + 1}`)}
-          title="Add Layer"
-        >
-            <Plus size={16} />
-        </button>
-      </div>
       <div className={styles.layersList}>
+        <div className={styles.addLayerContainer}>
+          {isAddingLayer ? (
+            <form onSubmit={handleAddLayer} className={clsx(styles.layerItem, styles.active)}>
+              <input
+                autoFocus
+                className={styles.layerRenameInput}
+                value={newLayerName}
+                onChange={(e) => setNewLayerName(e.target.value)}
+                onBlur={handleAddLayer}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setIsAddingLayer(false)
+                }}
+                placeholder="Layer name..."
+              />
+            </form>
+          ) : (
+            <button 
+              className={styles.addLayerBtn}
+              onClick={() => setIsAddingLayer(true)}
+            >
+              ADD LAYER
+            </button>
+          )}
+        </div>
+
         {[...activeFrame.layers].reverse().map((layer) => (
             <div 
                 key={layer.id} 
@@ -96,25 +121,25 @@ export const LayersPanel = () => {
                   </button>
                 </div>
             </div>
-        ))} 
+        ))}
       </div>
       
-      <div className={styles.panelHeader} style={{ marginTop: 'auto', borderTop: '2px solid var(--border-color)' }}>
-        PROPERTIES
-      </div>
       <div className={styles.settingsSection}>
         {activeLayer && (
-          <div className={styles.settingRow}>
-            <label>OPACITY</label>
-            <div style={{ width: '60px' }}>
-              <NumberDragger 
-                value={Math.round(activeLayer.opacity * 100)}
-                min={0}
-                max={100}
-                onChange={(val) => setLayerOpacity(activeLayer.id, val / 100)}
-              />
+          <>
+            <div className={styles.opacitySeparator} />
+            <div className={styles.settingRow}>
+              <label>OPACITY</label>
+              <div style={{ width: '60px' }}>
+                <NumberDragger 
+                  value={Math.round(activeLayer.opacity * 100)}
+                  min={0}
+                  max={100}
+                  onChange={(val) => setLayerOpacity(activeLayer.id, val / 100)}
+                />
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

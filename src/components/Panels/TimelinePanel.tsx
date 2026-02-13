@@ -8,8 +8,10 @@ import styles from './TimelinePanel.module.scss'
 import clsx from 'clsx'
 
 // Memoized preview to prevent unnecessary redraws
-const FramePreview = memo(({ frame, width, height }: { frame: Frame, width: number, height: number }) => {
+const FramePreview = memo(({ frame, width, height, isCurrentFrame }: { frame: Frame, width: number, height: number, isCurrentFrame: boolean }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const selection = useEditorStore(state => state.selection)
+  const floatingSelection = useEditorStore(state => state.floatingSelection)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -23,8 +25,6 @@ const FramePreview = memo(({ frame, width, height }: { frame: Frame, width: numb
 
     ctx.save()
     // Transform coordinate system to match grid (0,0 at center)
-    // Canvas (0,0) is top-left.
-    // We want grid (0,0) to be at canvas (width/2, height/2).
     ctx.translate(Math.floor(width / 2), Math.floor(height / 2))
 
     // Draw frame content
@@ -44,10 +44,27 @@ const FramePreview = memo(({ frame, width, height }: { frame: Frame, width: numb
              }
          })
     })
+
+    // Draw Floating Selection (ONLY for current frame)
+    if (isCurrentFrame && floatingSelection && selection) {
+        floatingSelection.forEach(item => {
+            const x = selection.x + item.dx
+            const y = selection.y + item.dy
+            
+            if (item.data.bgColor) {
+                ctx.fillStyle = item.data.bgColor
+                ctx.fillRect(x, y, 1, 1)
+            }
+            if (item.data.char) {
+                ctx.fillStyle = item.data.color
+                ctx.fillRect(x, y, 1, 1)
+            }
+        })
+    }
     
     ctx.restore()
 
-  }, [frame, width, height])
+  }, [frame, width, height, isCurrentFrame, selection, floatingSelection])
 
   return <canvas ref={canvasRef} className={styles.previewCanvas} width={width} height={height} />
 })
@@ -145,7 +162,12 @@ export const TimelinePanel = () => {
           >
             <span className={styles.frameNumber}>{index + 1}</span>
             
-            <FramePreview frame={frame} width={width} height={height} />
+            <FramePreview 
+                frame={frame} 
+                width={width} 
+                height={height} 
+                isCurrentFrame={activeFrameIndex === index}
+            />
 
             {frames.length > 1 && (
                 <button 

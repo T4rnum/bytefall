@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { NumberDragger } from '../UI/NumberDragger'
-import { exportFrameToPNG } from '../../utils/exportUtils'
+import { ExportPopup } from '../UI/ExportPopup'
+import { exportFrameToPNG, exportToSpriteSheet, exportToGIF } from '../../utils/exportUtils'
 import styles from './Panels.module.scss'
+import { Download } from 'lucide-react'
 
 export const ProjectPanel = () => {
     const { frames, activeFrameIndex, width: projectWidth, height: projectHeight, setSize } = useProjectStore()
@@ -16,6 +18,8 @@ export const ProjectPanel = () => {
     } = useEditorStore()
     const [width, setWidth] = useState(projectWidth)
     const [height, setHeight] = useState(projectHeight)
+    const [fps, setFps] = useState(10)
+    const [showExportPopup, setShowExportPopup] = useState(false)
 
     useEffect(() => {
         setWidth(projectWidth)
@@ -28,10 +32,18 @@ export const ProjectPanel = () => {
         setSize(w, h)
     }
 
-    const handleExport = () => {
+    const handleExportPNG = () => {
         const frame = frames[activeFrameIndex]
         if (!frame) return
         exportFrameToPNG(frame, projectWidth, projectHeight, exportBgColor)
+    }
+
+    const handleExportSpriteSheet = () => {
+        exportToSpriteSheet(frames, projectWidth, projectHeight, exportBgColor)
+    }
+
+    const handleExportGIF = () => {
+        exportToGIF(frames, projectWidth, projectHeight, exportBgColor, fps)
     }
 
     return (
@@ -96,25 +108,41 @@ export const ProjectPanel = () => {
                     <input 
                         type="checkbox" 
                         checked={exportBgColor === null}
-                        onChange={(e) => setExportBgColor(e.target.checked ? null : canvasBgColor)}
+                        onChange={(e) => setExportBgColor(e.target.checked ? null : (exportBgColor || canvasBgColor))}
                     />
                 </div>
+                {exportBgColor !== null && (
+                    <div className={styles.settingRow}>
+                        <label>EXPORT BG</label>
+                        <input 
+                            type="color" 
+                            value={exportBgColor}
+                            onChange={(e) => setExportBgColor(e.target.value)}
+                            style={{ width: '40px', height: '24px' }}
+                        />
+                    </div>
+                )}
 
-                <div className={styles.settingRow} style={{ justifyContent: 'center', marginTop: '10px' }}>
+                <div className={styles.settingRow} style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <button 
                         className={styles.toolBtn} 
-                        onClick={handleExport}
+                        onClick={() => setShowExportPopup(true)}
                         style={{ 
                             width: '100%', 
                             aspectRatio: 'auto', 
-                            padding: '10px', 
-                            fontSize: '10px',
+                            padding: '14px', 
+                            fontSize: '12px',
                             fontFamily: '"Press Start 2P", cursive',
                             backgroundColor: 'var(--accent)',
-                            color: 'var(--bg-darker)'
+                            color: 'var(--bg-darker)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '10px'
                         }}
                     >
-                        EXPORT PNG
+                        <Download size={18} />
+                        EXPORT...
                     </button>
                 </div>
 
@@ -136,6 +164,7 @@ export const ProjectPanel = () => {
                     />
                 </div>
             </div>
+            {showExportPopup && <ExportPopup onClose={() => setShowExportPopup(false)} />}
         </div>
     )
 }

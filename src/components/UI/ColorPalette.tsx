@@ -18,26 +18,38 @@ export const ColorPalette: React.FC = () => {
     return (
         <div className={styles.paletteContainer}>
             <div className={styles.grid}>
-                {palette.map((color, index) => (
-                    <div
-                        key={`${color}-${index}`}
-                        className={clsx(styles.colorSwatch, {
-                            [styles.activePrimary]: brushColor === color,
-                            [styles.activeSecondary]: secondaryColor === color
-                        })}
-                        style={{ backgroundColor: color }}
-                        onClick={(e) => handleColorClick(color, e)}
-                        onContextMenu={(e) => {
-                            e.preventDefault()
-                            handleColorClick(color, e)
-                        }}
-                        title={`${color} (LMB: Brush, RMB: Secondary)`}
-                    />
-                ))}
+                {palette.map((color, index) => {
+                    const isPrimary = brushColor.toLowerCase() === color.toLowerCase()
+                    const isSecondary = secondaryColor.toLowerCase() === color.toLowerCase()
+                    
+                    return (
+                        <div
+                            key={`${color}-${index}`}
+                            className={clsx(styles.colorSwatch, {
+                                [styles.activePrimary]: isPrimary,
+                                [styles.activeSecondary]: isSecondary
+                            })}
+                            style={{ backgroundColor: color }}
+                            onClick={(e) => handleColorClick(color, e)}
+                            onContextMenu={(e) => {
+                                e.preventDefault()
+                                handleColorClick(color, e)
+                            }}
+                            title={`${color} (LMB: Brush, RMB: Secondary)`}
+                        >
+                            {isPrimary && <div className={styles.markerPrimary} />}
+                            {isSecondary && <div className={styles.markerSecondary} />}
+                        </div>
+                    )
+                })}
                 <button 
                     className={styles.addBtn}
                     onClick={() => addColorToPalette(brushColor)}
-                    title="Add current color to palette"
+                    onContextMenu={(e) => {
+                        e.preventDefault()
+                        addColorToPalette(secondaryColor)
+                    }}
+                    title="Add current colors (LMB: Primary, RMB: Secondary)"
                 >
                     +
                 </button>

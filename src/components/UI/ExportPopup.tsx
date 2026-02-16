@@ -2,7 +2,7 @@ import React from 'react'
 import { X, Download, Settings2 } from 'lucide-react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
-import { exportFrameToPNG, exportToSpriteSheet, exportToGIF } from '../../utils/exportUtils'
+import { exportFrameToPNG, exportToSpriteSheet, exportToGIF, exportWebGLSnapshotToPNG } from '../../utils/exportUtils'
 import { NumberDragger } from './NumberDragger'
 import styles from './ExportPopup.module.scss'
 
@@ -15,19 +15,24 @@ export const ExportPopup: React.FC<ExportPopupProps> = ({ onClose }) => {
     const { exportBgColor, setExportBgColor, canvasBgColor } = useEditorStore()
     const [fps, setFps] = React.useState(10)
     const [scale, setScale] = React.useState(2)
+    const [useWebGLSnapshot, setUseWebGLSnapshot] = React.useState(false)
 
     const handleExportPNG = () => {
+        if (useWebGLSnapshot) {
+            exportWebGLSnapshotToPNG(scale)
+            return
+        }
         const frame = frames[activeFrameIndex]
         if (!frame) return
-        exportFrameToPNG(frame, width, height, exportBgColor)
+        exportFrameToPNG(frame, width, height, exportBgColor, scale)
     }
 
     const handleExportSpriteSheet = () => {
-        exportToSpriteSheet(frames, width, height, exportBgColor)
+        exportToSpriteSheet(frames, width, height, exportBgColor, scale)
     }
 
     const handleExportGIF = () => {
-        exportToGIF(frames, width, height, exportBgColor, fps)
+        exportToGIF(frames, width, height, exportBgColor, fps, scale)
     }
 
     return (
@@ -78,6 +83,14 @@ export const ExportPopup: React.FC<ExportPopupProps> = ({ onClose }) => {
                                     </button>
                                 ))}
                             </div>
+                        </div>
+                        <div className={styles.settingRow}>
+                            <label>WEBGL SNAPSHOT</label>
+                            <input
+                                type="checkbox"
+                                checked={useWebGLSnapshot}
+                                onChange={(e) => setUseWebGLSnapshot(e.target.checked)}
+                            />
                         </div>
                     </div>
 

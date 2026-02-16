@@ -8,9 +8,10 @@ export const exportFrameToPNG = (
     frame: Frame, 
     width: number, 
     height: number, 
-    bgColor: string | null
+    bgColor: string | null,
+    scale: number = 2
 ) => {
-    const canvas = renderFrameToCanvas(frame, width, height, bgColor)
+    const canvas = renderFrameToCanvas(frame, width, height, bgColor, scale)
     downloadCanvasAsPNG(canvas, `bytefall_frame_${Date.now()}.png`)
 }
 
@@ -18,19 +19,20 @@ export const exportToSpriteSheet = (
     frames: Frame[],
     width: number,
     height: number,
-    bgColor: string | null
+    bgColor: string | null,
+    scale: number = 2
 ) => {
     if (frames.length === 0) return
 
     const canvas = document.createElement('canvas')
-    canvas.width = width * GRID_SIZE * frames.length
-    canvas.height = height * GRID_SIZE
+    canvas.width = width * GRID_SIZE * scale * frames.length
+    canvas.height = height * GRID_SIZE * scale
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     frames.forEach((frame, index) => {
-        const frameCanvas = renderFrameToCanvas(frame, width, height, bgColor)
-        ctx.drawImage(frameCanvas, index * width * GRID_SIZE, 0)
+        const frameCanvas = renderFrameToCanvas(frame, width, height, bgColor, scale)
+        ctx.drawImage(frameCanvas, index * width * GRID_SIZE * scale, 0)
     })
 
     downloadCanvasAsPNG(canvas, `bytefall_spritesheet_${Date.now()}.png`)
@@ -41,13 +43,13 @@ export const exportToGIF = (
     width: number,
     height: number,
     bgColor: string | null,
-    fps: number = 10
+    fps: number = 10,
+    scale: number = 2
 ) => {
     if (frames.length === 0) return
 
-    const scale = 2
     const images = frames.map(frame => {
-        const canvas = renderFrameToCanvas(frame, width, height, bgColor)
+        const canvas = renderFrameToCanvas(frame, width, height, bgColor, scale)
         return canvas.toDataURL('image/png')
     })
 
@@ -70,16 +72,43 @@ export const exportToGIF = (
     })
 }
 
+export const exportWebGLSnapshotToPNG = (scale: number = 1) => {
+    const srcCanvas = document.querySelector('canvas[data-bytefall-three-stage="true"]') as HTMLCanvasElement | null
+    if (!srcCanvas) return
+
+    const dataUrl = srcCanvas.toDataURL('image/png')
+    if (scale === 1) {
+        const link = document.createElement('a')
+        link.download = `bytefall_webgl_${Date.now()}.png`
+        link.href = dataUrl
+        link.click()
+        return
+    }
+
+    const img = new Image()
+    img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.imageSmoothingEnabled = false
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        downloadCanvasAsPNG(canvas, `bytefall_webgl_${Date.now()}.png`)
+    }
+    img.src = dataUrl
+}
+
 // Internal helpers
 const renderFrameToCanvas = (
     frame: Frame,
     width: number,
     height: number,
-    bgColor: string | null
+    bgColor: string | null,
+    scale: number
 ): HTMLCanvasElement => {
     const canvas = document.createElement('canvas')
     // Use higher resolution for crispness
-    const scale = 2 
     canvas.width = width * GRID_SIZE * scale
     canvas.height = height * GRID_SIZE * scale
     const ctx = canvas.getContext('2d')

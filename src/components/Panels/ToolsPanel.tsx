@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Paintbrush, Eraser, MousePointer2, PaintBucket, Minus, Square, Pipette, ArrowUpRight, Circle, Lasso, Wand2, PlusSquare, MinusSquare, BoxSelect, Move } from 'lucide-react'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { ToolType } from '../../modules/2d/types'
-import { CharPicker } from '../UI/CharPicker'
+import CharPicker from '../UI/CharPicker'
 import { ColorPalette } from '../UI/ColorPalette'
 import { NumberDragger } from '../UI/NumberDragger'
 import { CustomSelect } from '../UI/CustomSelect'
@@ -157,9 +157,22 @@ export const ToolsPanel = () => {
     setWandTolerance,
     selectionMode,
     setSelectionMode,
+    renderMode3D,
+    setRenderMode3D,
+    autoRotate3D,
+    setAutoRotate3D,
     asciiMode3D,
+    setAsciiMode3D,
     asciiFontSize,
     setAsciiFontSize,
+    asciiFillBackground3D,
+    setAsciiFillBackground3D,
+    cameraType3D,
+    setCameraType3D,
+    cameraZoom3D,
+    setCameraZoom3D,
+    layerDepth3D,
+    setLayerDepth3D,
     activeTab
   } = useEditorStore()
 
@@ -192,17 +205,94 @@ export const ToolsPanel = () => {
 
         <div className={styles.panelHeader}>SETTINGS</div>
         <div className={styles.settingsSection}>
+            {activeTab === '3D' && (
+                <>
+                    <div className={styles.settingRow}>
+                        <span>MODE</span>
+                        <CustomSelect
+                            value={renderMode3D}
+                            onChange={(val) => setRenderMode3D(val as 'voxel' | 'plane')}
+                            options={[
+                                { value: 'plane', label: 'PLANE' },
+                                { value: 'voxel', label: 'VOXEL' }
+                            ]}
+                            className={styles.toolSelect}
+                        />
+                    </div>
+                    <div className={styles.settingRow}>
+                        <span>CAMERA</span>
+                        <CustomSelect
+                            value={cameraType3D}
+                            onChange={(val) => setCameraType3D(val as 'persp' | 'ortho')}
+                            options={[
+                                { value: 'persp', label: 'PERSP' },
+                                { value: 'ortho', label: 'ORTHO' }
+                            ]}
+                            className={styles.toolSelect}
+                        />
+                    </div>
+                    {cameraType3D === 'ortho' && (
+                        <div className={styles.settingRow}>
+                            <span>ZOOM</span>
+                            <NumberDragger
+                                value={cameraZoom3D}
+                                onChange={setCameraZoom3D}
+                                min={0.1}
+                                max={20}
+                                step={0.1}
+                            />
+                        </div>
+                    )}
+                    <div className={styles.settingRow}>
+                        <span>DEPTH</span>
+                        <NumberDragger
+                            value={layerDepth3D}
+                            onChange={setLayerDepth3D}
+                            min={0}
+                            max={5}
+                            step={0.01}
+                            wheelStep={0.1}
+                        />
+                    </div>
+                    <div className={styles.settingRow}>
+                        <span>AUTO ROT</span>
+                        <input
+                            type="checkbox"
+                            checked={autoRotate3D}
+                            onChange={(e) => setAutoRotate3D(e.target.checked)}
+                        />
+                    </div>
+                    <div className={styles.settingRow}>
+                        <span>ASCII</span>
+                        <input
+                            type="checkbox"
+                            checked={asciiMode3D}
+                            onChange={(e) => setAsciiMode3D(e.target.checked)}
+                        />
+                    </div>
+                </>
+            )}
             {activeTab === '3D' && asciiMode3D && (
-                <div className={styles.settingRow} style={{ marginBottom: '10px', padding: '8px', backgroundColor: 'rgba(255, 204, 0, 0.05)', borderRadius: '4px', border: '1px solid rgba(255, 204, 0, 0.2)' }}>
-                    <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>ASCII SIZE</span>
-                    <NumberDragger
-                        value={asciiFontSize}
-                        onChange={setAsciiFontSize}
-                        min={5}
-                        max={10}
-                        step={1}
-                    />
-                </div>
+                <>
+                    <div className={styles.settingRow} style={{ marginBottom: '10px', padding: '8px', backgroundColor: 'rgba(255, 204, 0, 0.05)', borderRadius: '4px', border: '1px solid rgba(255, 204, 0, 0.2)' }}>
+                        <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>ASCII SIZE</span>
+                        <NumberDragger
+                            value={asciiFontSize}
+                            onChange={setAsciiFontSize}
+                            min={5}
+                            max={10}
+                            step={1}
+                        />
+                    </div>
+                    <div className={styles.settingRow}>
+                        <span>ASCII FILL</span>
+                        <input
+                            type="checkbox"
+                            checked={asciiFillBackground3D}
+                            onChange={(e) => setAsciiFillBackground3D(e.target.checked)}
+                        />
+                    </div>
+                </>
             )}
             {(activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand') && (
                 <div className={styles.settingRow} style={{ marginBottom: '15px' }}>

@@ -1,48 +1,70 @@
-# Bytefall Development Roadmap
+# Bytefall Roadmap (Unified Three.js)
 
-## Phase 1: Foundation (Completed)
-- [x] Basic React + Electron setup
-- [x] 2D Grid Rendering (Canvas)
-- [x] Basic Tools (Brush, Eraser, Fill, Eyedropper)
-- [x] Layer System (Add, Toggle, Opacity)
-- [x] Animation System (Frames, Playback, Onion Skin)
-- [x] Project State Management (Zustand)
-- [x] UI Layout (Resizable Panels, Tabbed Interface)
+---
 
-## Phase 2: Advanced 2D Editor (Current)
-- [x] Gradient Tool (Linear/Radial)
-- [ ] Advanced Selection (Move, Cut, Copy, Paste, Transform)
-- [x] Shape Tools (Line, Rectangle, Circle) with Preview
-- [ ] Custom Color Palette Management
-- [ ] Text Tool (ASCII text insertion)
-- [ ] Image Import/Reference (Background overlay)
+# Phase 1 — Three.js Rendering Core
 
-## Phase 3: 3D Editor Engine
-- [ ] Three.js Integration setup
-- [ ] 3D Grid/Space Visualization
-- [ ] Voxel/Block Placement Tool
-- [ ] Camera Controls (Orbit, Pan, Zoom)
-- [ ] Texture Mapping (Apply 2D sprites to 3D faces)
-- [ ] Depth Layering System
-- [ ] Lighting & Shading Controls
+- [x] Stabilize ThreeStage lifecycle (resize, pixelRatio, on-demand render)
+- [x] GridRenderer as LineSegments (aligned to cell bounds)
+- [x] SymbolInstancedRenderer: full frame build + incremental updates
+- [x] GlyphAtlas: BMFont + MSDF texture loading
+- [x] Coordinate contract: 1 unit = 1 cell, center at (0,0)
 
-## Phase 4: Physics & Object System
-- [ ] Physical Object Properties (Mass, Collider)
-- [ ] "Bone" System for Animation (Linking sprites)
-- [ ] Rope/Chain Physics Simulation
-- [ ] Grouping System (Parent/Child relationships)
-- [ ] Inverse Kinematics (Basic)
+Goal:
+Stable 2D rendering on Three.js only.
 
-## Phase 5: Data & Integration
-- [ ] Custom Binary File Format (.bfl) Specification
-- [ ] Optimized Save/Load Logic
-- [ ] Export to PNG/Sprite Sheet
-- [ ] Export to JSON/Game Engine Format
-- [ ] Performance Optimization (WebWorkers for large grids)
+---
 
-## Phase 6: Polish & UI/UX
-- [ ] 2D/3D Context Switching (Tool palette adaptation)
-- [ ] Keyboard Shortcuts Configuration
-- [ ] Theme Customization (Pixel Art styling refinement)
-- [ ] Welcome Screen & Project Management
-- [ ] Interactive Tutorial/Help
+# Phase 2 — Tool Overlays in Three.js
+
+- [x] Selection/hover/path/mask overlays fully in Three.js
+- [x] Gradient preview and guides in Three.js
+- [x] CanvasRenderer becomes input-only layer
+
+Goal:
+No visual rendering on Canvas, overlays are GPU-accelerated.
+
+---
+
+# Phase 3 — Performance & Scalability
+
+- [x] Instance buffer updates with updateRange
+- [x] Optional chunking for large canvases
+- [x] Viewport-aware culling
+- [x] RenderScheduler tuned for interaction bursts
+
+Goal:
+Smooth interaction on large grids.
+
+---
+
+# Phase 4 — 3D View Enhancements
+
+- [x] Ortho/Persp camera controls parity
+- [x] Optional depth/layer separation
+- [x] UI controls for 3D render settings
+
+Goal:
+Consistent 2D/3D views on one pipeline.
+
+---
+
+# Phase 5 — Export Pipeline
+
+- [ ] Validate PNG/GIF/SpriteSheet path with Three-based content
+- [ ] Optional WebGL snapshot exporter
+- [ ] Regression tests for export output
+
+Goal:
+Reliable export regardless of renderer backend.
+
+---
+
+# Phase 6 — Stability & Recovery
+
+- [ ] WebGL context loss handling
+- [ ] Memory profiling for large projects
+- [ ] Stress tests for draw/update loops
+
+Goal:
+Production stability.

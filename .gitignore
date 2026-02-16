@@ -119,3 +119,10 @@ out
 dist/
 dist-electron/
 release/
+
+# Trae IDE
+.trae/
+
+# Local docs drafts (keep ROADMAP tracked)
+docs/*.md
+!docs/ROADMAP.md

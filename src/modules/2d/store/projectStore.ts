@@ -1,10 +1,13 @@
 import { create } from 'zustand'
 import { Frame, Layer, CellData } from '../types'
+import { useEditorStore } from './editorStore'
 
 interface ProjectState {
   frames: Frame[]
   activeFrameIndex: number
   activeLayerId: string
+  frameVersion: number
+  lastUpdates: { updates: { x: number; y: number; data: CellData }[]; frameIndex: number; layerId: string; opacity: number } | null
   
   // Canvas Dimensions
   width: number
@@ -69,22 +72,41 @@ const deepCloneFrames = (frames: Frame[]): Frame[] => {
 }
 
 const initialFrames = [createInitialFrame()]
+const LARGE_UPDATE_THRESHOLD = 2000
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   frames: initialFrames,
   activeFrameIndex: 0,
   activeLayerId: 'layer-1',
-  width: 50,
-  height: 50,
+  frameVersion: 0,
+  lastUpdates: null,
+  width: 51,
+  height: 51,
   
   history: [deepCloneFrames(initialFrames)],
   historyIndex: 0,
 
-  setActiveLayerId: (id) => set({ activeLayerId: id }),
+  setActiveLayerId: (id) => {
+    const editor = useEditorStore.getState()
+    const { selection, floatingSelection } = editor
+    if (selection && floatingSelection) {
+      const updates = floatingSelection.map(item => ({
+        x: selection.x + item.dx,
+        y: selection.y + item.dy,
+        data: item.data
+      }))
+      if (updates.length > 0) {
+        get().saveSnapshot()
+        get().batchUpdateCells(updates)
+      }
+      editor.setFloatingSelection(null)
+    }
+    set({ activeLayerId: id })
+  },
 
-  setActiveFrameIndex: (index) => set({ activeFrameIndex: index }),
+  setActiveFrameIndex: (index) => set(state => ({ activeFrameIndex: index, frameVersion: state.frameVersion + 1, lastUpdates: null })),
 
-  setSize: (width, height) => set({ width, height }),
+  setSize: (width, height) => set(state => ({ width, height, frameVersion: state.frameVersion + 1, lastUpdates: null })),
 
   addFrame: () => {
       const { frames, saveSnapshot } = get()
@@ -104,7 +126,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const newFrames = [...frames, newFrame]
       set({ 
           frames: newFrames,
-          activeFrameIndex: newFrames.length - 1 
+          activeFrameIndex: newFrames.length - 1,
+          frameVersion: get().frameVersion + 1,
+          lastUpdates: null
       })
   },
 
@@ -129,7 +153,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       
       set({ 
           frames: newFrames,
-          activeFrameIndex: index + 1
+          activeFrameIndex: index + 1,
+          frameVersion: get().frameVersion + 1,
+          lastUpdates: null
       })
   },
 
@@ -148,7 +174,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       
       set({ 
           frames: newFrames,
-          activeFrameIndex: newActiveIndex
+          activeFrameIndex: newActiveIndex,
+          frameVersion: get().frameVersion + 1,
+          lastUpdates: null
       })
   },
 
@@ -175,7 +203,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const newIndex = historyIndex - 1
         set({
             frames: deepCloneFrames(history[newIndex]),
-            historyIndex: newIndex
+            historyIndex: newIndex,
+            frameVersion: get().frameVersion + 1,
+            lastUpdates: null
         })
     }
   },
@@ -186,13 +216,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const newIndex = historyIndex + 1
         set({
             frames: deepCloneFrames(history[newIndex]),
-            historyIndex: newIndex
+            historyIndex: newIndex,
+            frameVersion: get().frameVersion + 1,
+            lastUpdates: null
         })
     }
   },
 
   setCell: (x, y, cellData) => {
-    const { frames, activeFrameIndex, activeLayerId, saveSnapshot } = get()
+    const { frames, activeFrameIndex, activeLayerId } = get()
     
     // Save snapshot before the first edit in a sequence if needed, 
     // but usually tool calls handle this. For individual pixel drawing,
@@ -220,7 +252,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     
     currentLayer.data = newData
     
-    set({ frames: newFrames })
+    set({
+      frames: newFrames,
+      lastUpdates: { updates: [{ x, y, data: cellData }], frameIndex: activeFrameIndex, layerId: activeLayerId, opacity: currentLayer.opacity }
+    })
   },
 
   batchUpdateCells: (updates) => {
@@ -247,7 +282,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })
     
     currentLayer.data = newData
-    set({ frames: newFrames })
+    if (updates.length > LARGE_UPDATE_THRESHOLD) {
+      set({
+        frames: newFrames,
+        frameVersion: get().frameVersion + 1,
+        lastUpdates: null
+      })
+    } else {
+      set({
+        frames: newFrames,
+        lastUpdates: { updates, frameIndex: activeFrameIndex, layerId: activeLayerId, opacity: currentLayer.opacity }
+      })
+    }
   },
 
   deleteLayer: (id) => {
@@ -265,7 +311,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (activeLayerId === id) {
       newState.activeLayerId = newFrames[0].layers[0].id
     }
-    set(newState)
+    set({ ...newState, frameVersion: get().frameVersion + 1, lastUpdates: null })
   },
 
   renameLayer: (id, name) => {
@@ -274,7 +320,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...frame,
       layers: frame.layers.map(l => l.id === id ? { ...l, name } : l)
     }))
-    set({ frames: newFrames })
+    set({ frames: newFrames, frameVersion: get().frameVersion + 1, lastUpdates: null })
   },
 
   setLayerOpacity: (id, opacity) => {
@@ -283,7 +329,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...frame,
       layers: frame.layers.map(l => l.id === id ? { ...l, opacity } : l)
     }))
-    set({ frames: newFrames })
+    set({ frames: newFrames, frameVersion: get().frameVersion + 1, lastUpdates: null })
   },
 
   updateLayer: (id, updates) => {
@@ -292,7 +338,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...frame,
       layers: frame.layers.map(l => l.id === id ? { ...l, ...updates } : l)
     }))
-    set({ frames: newFrames })
+    set({ frames: newFrames, frameVersion: get().frameVersion + 1, lastUpdates: null })
   },
 
   addLayer: (name) => {
@@ -311,7 +357,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }]
     }))
     
-    set({ frames: newFrames, activeLayerId: newId })
+    set({ frames: newFrames, activeLayerId: newId, frameVersion: get().frameVersion + 1, lastUpdates: null })
   },
   
   toggleLayerVisibility: (id) => {
@@ -322,7 +368,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                   layer.id === id ? { ...layer, visible: !layer.visible } : layer
               )
           }))
-          return { frames: newFrames }
+          return { frames: newFrames, frameVersion: state.frameVersion + 1, lastUpdates: null }
       })
   },
 
@@ -344,7 +390,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               activeFrameIndex: 0,
               activeLayerId: frames[0]?.layers[0]?.id || 'layer-1',
               history: [deepCloneFrames(frames)],
-              historyIndex: 0
+              historyIndex: 0,
+              frameVersion: get().frameVersion + 1,
+              lastUpdates: null
           })
       } catch (e) {
           console.error("Failed to load project", e)
@@ -388,7 +436,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Let's assume the component will handle the store update
   },
 
-  pasteFromClipboard: (x, y) => {
+  pasteFromClipboard: (_x, _y) => {
     // This will be handled by the component using the clipboard data from editorStore
     return null 
   },

@@ -9,6 +9,8 @@ let win: BrowserWindow | null
 // 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
+app.commandLine.appendSwitch('log-level', '3')
+
 function createWindow() {
   const publicDir = process.env.VITE_PUBLIC || ''
   const distDir = process.env.DIST || ''

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Plus, Trash2, Edit2 } from 'lucide-react'
+import { Eye, EyeOff, Trash2, Edit2 } from 'lucide-react'
 import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { NumberDragger } from '../UI/NumberDragger'
 import styles from './Panels.module.scss'

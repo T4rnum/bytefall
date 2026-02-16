@@ -1,0 +1,13 @@
+.fps {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 6px;
+  border: 1px solid #333333;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  pointer-events: none;
+}

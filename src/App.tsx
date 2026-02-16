@@ -5,10 +5,10 @@ import { LayersPanel } from './components/Panels/LayersPanel'
 import { ProjectPanel } from './components/Panels/ProjectPanel'
 import { TimelinePanel } from './components/Panels/TimelinePanel'
 import { TabbedPanel } from './components/Common/TabbedPanel'
-import { CanvasRenderer } from './modules/2d/components/CanvasRenderer'
-import { SceneRenderer } from './modules/3d/components/SceneRenderer'
+import { Stage2D } from './modules/2d/components/Stage2D'
 import { useProjectStore } from './modules/2d/store/projectStore'
 import { useEditorStore } from './modules/2d/store/editorStore'
+import { useHotkeys } from './modules/2d/hotkeys/useHotkeys'
 import { Save, FolderOpen, Image as ImageIcon } from 'lucide-react'
 import './App.scss'
 
@@ -128,38 +128,40 @@ const Header = () => {
   return (
   <header className="app-header">
     <div className="title">BYTEFALL</div>
-    <div className="actions" style={{ display: 'flex', gap: '10px', marginRight: '20px' }}>
-        <button className="icon-btn" onClick={handleSave} title="Save Project">
-            <Save size={18} />
+    <div className="header-right">
+      <div className="actions">
+          <button className="icon-btn" onClick={handleSave} title="Save Project">
+              <Save size={18} />
+          </button>
+          <button className="icon-btn" onClick={handleLoad} title="Load Project">
+              <FolderOpen size={18} />
+          </button>
+          <button className="icon-btn" onClick={handleExportImage} title="Export Image">
+              <ImageIcon size={18} />
+          </button>
+      </div>
+      <div className="mode-switcher">
+        <button 
+          className={activeTab === '2D' ? 'active' : ''} 
+          onClick={() => setActiveTab('2D')}
+        >
+          2D MODE
         </button>
-        <button className="icon-btn" onClick={handleLoad} title="Load Project">
-            <FolderOpen size={18} />
+        <button 
+          className={activeTab === '3D' ? 'active' : ''} 
+          onClick={() => setActiveTab('3D')}
+        >
+          3D MODE
         </button>
-        <button className="icon-btn" onClick={handleExportImage} title="Export Image">
-            <ImageIcon size={18} />
-        </button>
-    </div>
-    <div className="mode-switcher">
-      <button 
-        className={activeTab === '2D' ? 'active' : ''} 
-        onClick={() => setActiveTab('2D')}
-      >
-        2D MODE
-      </button>
-      <button 
-        className={activeTab === '3D' ? 'active' : ''} 
-        onClick={() => setActiveTab('3D')}
-      >
-        3D MODE
-      </button>
+      </div>
     </div>
   </header>
   )
 }
 
 function App() {
-  const { activeTab } = useEditorStore()
   const [mounted, setMounted] = useState(false)
+  useHotkeys()
 
   useEffect(() => {
     setMounted(true)
@@ -174,7 +176,7 @@ function App() {
       <div className="workspace-wrapper">
         <MainLayout 
           leftPanel={<TabbedPanel tabs={[{ id: 'tools', title: 'TOOLS', content: <ToolsPanel /> }]} />}
-          centerPanel={activeTab === '2D' ? <CanvasRenderer /> : <SceneRenderer />}
+          centerPanel={<Stage2D />}
           rightPanel={<TabbedPanel tabs={[
             { id: 'layers', title: 'LAYERS', content: <LayersPanel /> },
             { id: 'project', title: 'PROJECT', content: <ProjectPanel /> }

@@ -3,22 +3,31 @@ import { useProjectStore } from '../../modules/2d/store/projectStore'
 import { useEditorStore } from '../../modules/2d/store/editorStore'
 import { NumberDragger } from '../UI/NumberDragger'
 import { ExportPopup } from '../UI/ExportPopup'
-import { exportFrameToPNG, exportToSpriteSheet, exportToGIF } from '../../utils/exportUtils'
 import styles from './Panels.module.scss'
 import { Download } from 'lucide-react'
 
 export const ProjectPanel = () => {
-    const { frames, activeFrameIndex, width: projectWidth, height: projectHeight, setSize } = useProjectStore()
+    const { width: projectWidth, height: projectHeight, setSize } = useProjectStore()
     const { 
         canvasBgColor, setCanvasBgColor, 
         exportBgColor, setExportBgColor,
         showGrid, setShowGrid,
         showCenterGuide, setShowCenterGuide,
-        workspaceColor, setWorkspaceColor
-    } = useEditorStore()
+        workspaceColor, setWorkspaceColor,
+    } = useEditorStore(state => ({
+        canvasBgColor: state.canvasBgColor,
+        setCanvasBgColor: state.setCanvasBgColor,
+        exportBgColor: state.exportBgColor,
+        setExportBgColor: state.setExportBgColor,
+        showGrid: state.showGrid,
+        setShowGrid: state.setShowGrid,
+        showCenterGuide: state.showCenterGuide,
+        setShowCenterGuide: state.setShowCenterGuide,
+        workspaceColor: state.workspaceColor,
+        setWorkspaceColor: state.setWorkspaceColor,
+    }))
     const [width, setWidth] = useState(projectWidth)
     const [height, setHeight] = useState(projectHeight)
-    const [fps, setFps] = useState(10)
     const [showExportPopup, setShowExportPopup] = useState(false)
 
     useEffect(() => {
@@ -30,20 +39,6 @@ export const ProjectPanel = () => {
         const w = Math.max(1, Math.min(200, width))
         const h = Math.max(1, Math.min(200, height))
         setSize(w, h)
-    }
-
-    const handleExportPNG = () => {
-        const frame = frames[activeFrameIndex]
-        if (!frame) return
-        exportFrameToPNG(frame, projectWidth, projectHeight, exportBgColor)
-    }
-
-    const handleExportSpriteSheet = () => {
-        exportToSpriteSheet(frames, projectWidth, projectHeight, exportBgColor)
-    }
-
-    const handleExportGIF = () => {
-        exportToGIF(frames, projectWidth, projectHeight, exportBgColor, fps)
     }
 
     return (
@@ -145,6 +140,8 @@ export const ProjectPanel = () => {
                         EXPORT...
                     </button>
                 </div>
+
+                {/* Removed RENDERER 2D and 2D CAMERA settings */}
 
                 <div className={styles.settingRow} style={{ marginTop: '15px', borderTop: '1px solid #333', paddingTop: '10px' }}>
                     <label>SHOW GRID</label>

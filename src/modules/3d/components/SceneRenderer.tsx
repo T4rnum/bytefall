@@ -20,7 +20,7 @@ export const SceneRenderer = () => {
   const cameraState3D = useEditorStore(state => state.cameraState3D)
   const setCameraState3D = useEditorStore(state => state.setCameraState3D)
 
-  const [lightIntensity, setLightIntensity] = useState(1.2)
+  const [lightIntensity] = useState(1.2)
   const [showGrid3D, setShowGrid3D] = useState(true)
   const [useLights, setUseLights] = useState(true)
 
@@ -69,6 +69,8 @@ export const SceneRenderer = () => {
     const texture = new THREE.CanvasTexture(canvas)
     texture.magFilter = THREE.NearestFilter
     texture.minFilter = THREE.NearestFilter
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.needsUpdate = true
     return texture
   }
 
@@ -108,16 +110,18 @@ export const SceneRenderer = () => {
     
     if (cameraState3D) {
       camera.position.fromArray(cameraState3D.position)
-      camera.lookAt(new THREE.Vector3().fromArray(cameraState3D.target))
     } else {
       camera.position.set(0, 0, Math.max(projectWidth, projectHeight) * 1.5)
-      camera.lookAt(0, 0, 0)
     }
+    camera.lookAt(0, 0, 0)
+    
     cameraRef.current = camera
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.NoToneMapping
     rendererRef.current = renderer
     
     // Add renderer to DOM initially
@@ -142,6 +146,8 @@ export const SceneRenderer = () => {
     controls.enableDamping = true
     if (cameraState3D) {
       controls.target.fromArray(cameraState3D.target)
+      camera.lookAt(controls.target)
+      controls.update()
     }
     controlsRef.current = controls
 
@@ -177,15 +183,13 @@ export const SceneRenderer = () => {
     return () => {
       cancelAnimationFrame(animationId)
       window.removeEventListener('resize', handleResize)
-      
-      // Save camera state
-      if (cameraRef.current && controlsRef.current) {
-        setCameraState3D({
-          position: cameraRef.current.position.toArray() as [number, number, number],
-          target: controlsRef.current.target.toArray() as [number, number, number]
-        })
-      }
 
+      if (cameraRef.current && controlsRef.current) {
+        const pos = cameraRef.current.position
+        const tgt = controlsRef.current.target
+        setCameraState3D({ position: [pos.x, pos.y, pos.z], target: [tgt.x, tgt.y, tgt.z] })
+      }
+      
       if (controlsRef.current) controlsRef.current.dispose()
       if (rendererRef.current) rendererRef.current.dispose()
       if (container) {
@@ -425,7 +429,7 @@ export const SceneRenderer = () => {
         })
 
         // Create an InstancedMesh for each unique texture
-        cellGroups.forEach((cells, textureKey) => {
+        cellGroups.forEach((cells) => {
             const firstCell = cells[0]
             const material = useLights 
                 ? new THREE.MeshStandardMaterial({ map: firstCell.texture, transparent: true, opacity: firstCell.opacity })

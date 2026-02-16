@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import * as THREE from 'three'
 import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
 import { Position } from '../types'
@@ -20,7 +21,7 @@ function interpolateColor(color1: string, color2: string, factor: number) {
     const g = Math.round(c1.g + (c2.g - c1.g) * factor)
     const b = Math.round(c1.b + (c2.b - c1.b) * factor)
     
-    return `rgb(${r}, ${g}, ${b})`
+    return rgbToHex(r, g, b)
 }
 
 function hexToRgb(hex: string) {
@@ -30,6 +31,11 @@ function hexToRgb(hex: string) {
         g: parseInt(result[2], 16),
         b: parseInt(result[3], 16)
     } : { r: 0, g: 0, b: 0 }
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+    const toHex = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
 function getLinePoints(x0: number, y0: number, x1: number, y1: number) {
@@ -81,11 +87,7 @@ function getRectPoints(x0: number, y0: number, x1: number, y1: number) {
 
 function getCirclePoints(x0: number, y0: number, x1: number, y1: number) {
     const points: {x: number, y: number}[] = []
-    const r = Math.round(Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2)))
-    let x = r
-    let y = 0
-    let radiusError = 1 - x
-
+    const r = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0))
     const added = new Set<string>()
     const addPoint = (px: number, py: number) => {
         const key = `${px},${py}`
@@ -94,29 +96,31 @@ function getCirclePoints(x0: number, y0: number, x1: number, y1: number) {
             added.add(key)
         }
     }
+    if (r < 0.5) {
+        addPoint(x0, y0)
+        return points
+    }
 
-    while (x >= y) {
-        addPoint(x + x0, y + y0)
-        addPoint(y + x0, x + y0)
-        addPoint(-x + x0, y + y0)
-        addPoint(-y + x0, x + y0)
-        addPoint(-x + x0, -y + y0)
-        addPoint(-y + x0, -x + y0)
-        addPoint(x + x0, -y + y0)
-        addPoint(y + x0, -x + y0)
-        y++
-        
-        if (radiusError < 0) {
-            radiusError += 2 * y + 1
-        } else {
-            x--
-            radiusError += 2 * (y - x + 1)
+    const thr = 0.45
+    const rMin = Math.max(0, r - thr)
+    const rMax = r + thr
+    const minX = Math.floor(x0 - rMax)
+    const maxX = Math.ceil(x0 + rMax)
+    const minY = Math.floor(y0 - rMax)
+    const maxY = Math.ceil(y0 + rMax)
+
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const dx = x - x0
+            const dy = y - y0
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            if (dist >= rMin && dist <= rMax) addPoint(x, y)
         }
     }
     return points
 }
 
-export function CanvasRenderer() {
+export function CanvasRenderer({ mode = 'full', className, inputOnly }: { mode?: 'full' | 'overlay', className?: string, inputOnly?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   
@@ -137,7 +141,12 @@ export function CanvasRenderer() {
   const showGrid = useEditorStore(state => state.showGrid)
   const showCenterGuide = useEditorStore(state => state.showCenterGuide)
   const workspaceColor = useEditorStore(state => state.workspaceColor)
-  const setClipboard = useEditorStore(state => state.setClipboard)
+  const setCursorPos = useEditorStore(state => state.setCursorPos)
+  const setOverlayDraft = useEditorStore(state => state.setOverlayDraft)
+  const activeTab = useEditorStore(state => state.activeTab)
+  const cameraState3D = useEditorStore(state => state.cameraState3D)
+  const setCameraState3D = useEditorStore(state => state.setCameraState3D)
+  const setAutoRotate3D = useEditorStore(state => state.setAutoRotate3D)
   
   // Magic Wand settings
   const wandMode = useEditorStore(state => state.wandMode)
@@ -156,15 +165,40 @@ export function CanvasRenderer() {
   const floatingSelection = useEditorStore(state => state.floatingSelection)
   const setFloatingSelection = useEditorStore(state => state.setFloatingSelection)
 
-  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, undo, redo, width: projectWidth, height: projectHeight, deleteSelection } = useProjectStore()
-  const clipboard = useEditorStore(state => state.clipboard)
+  const { frames, activeFrameIndex, activeLayerId, setCell, batchUpdateCells, saveSnapshot, width: projectWidth, height: projectHeight } = useProjectStore()
   
-  const [isDragging, setIsDragging] = useState(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
   const lastEventRef = useRef<React.MouseEvent | KeyboardEvent | null>(null)
   const isRightClick = useRef(false)
   const [hoverPos, setHoverPos] = useState<{x: number, y: number} | null>(null)
-  const [startPos, setStartPos] = useState<{x: number, y: number} | null>(null)
+  const [startPos, setLocalStartPos] = useState<{x: number, y: number} | null>(null)
+  const startPosRef = useRef<{x: number, y: number} | null>(null)
+
+  const setIsDraggingStore = useEditorStore(state => state.setIsDragging)
+  const setDragStartPosStore = useEditorStore(state => state.setDragStartPos)
+
+  const setStartPos = (pos: {x: number, y: number} | null) => {
+    setLocalStartPos(pos)
+    startPosRef.current = pos
+    setDragStartPosStore(pos)
+  }
+
+  const [isDragging, setIsDragging] = useState(false)
+  
+  useEffect(() => {
+    setIsDraggingStore(isDragging)
+  }, [isDragging])
+
+  const isDraggingRef = useRef(false)
+  useEffect(() => { isDraggingRef.current = isDragging }, [isDragging])
+
+  const nav3DRef = useRef<null | {
+    mode: 'orbit' | 'pan'
+    startClientX: number
+    startClientY: number
+    startPos: [number, number, number]
+    startTarget: [number, number, number]
+  }>(null)
 
   // Track modifiers for reactive preview
   const [modifiers, setModifiers] = useState({ shift: false, alt: false })
@@ -172,7 +206,40 @@ export function CanvasRenderer() {
 
   // Floating Selection is now global
   const [isMovingSelection, setIsMovingSelection] = useState(false)
-  const [dragOffset, setDragOffset] = useState({x: 0, y: 0})
+  const dragOffset = useEditorStore(state => state.dragOffset)
+  const setDragOffset = useEditorStore(state => state.setDragOffset)
+  const setSelectionMoveOffset = useEditorStore(state => state.setSelectionMoveOffset)
+  const lastDrawPos = useRef<{ x: number; y: number } | null>(null)
+  const selectionPathRef = useRef<typeof selectionPath>(null)
+  const selectionMoveOffsetRef = useRef({ x: 0, y: 0 })
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            if (floatingSelection && selection) {
+                 saveSnapshot()
+                 const updates = floatingSelection.map(item => ({
+                     x: selection.x + item.dx,
+                     y: selection.y + item.dy,
+                     data: item.data
+                 }))
+                 batchUpdateCells(updates)
+                 setFloatingSelection(null)
+                 setSelection(null)
+                 setSelectionMask(null)
+            } else if (selection) {
+                 setSelection(null)
+                 setSelectionMask(null)
+            }
+        }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [floatingSelection, selection, saveSnapshot, batchUpdateCells, setFloatingSelection, setSelection, setSelectionMask])
+
+  useEffect(() => {
+    selectionPathRef.current = selectionPath
+  }, [selectionPath])
 
   const updateSelectionBounds = (mask: Set<string>) => {
     if (mask.size === 0) {
@@ -208,12 +275,8 @@ export function CanvasRenderer() {
   }, [activeTool])
 
   const isPointInSelection = useCallback((x: number, y: number) => {
-    // If we are currently moving selection, only allows editing what's inside the moving part
-    // But usually while moving we don't allow drawing.
-    if (isMovingSelection) return false
+    if (!selection) return true
 
-    if (!selection) return true // No selection means everything is editable
-    
     if (selectionMask) {
         return selectionMask.has(`${x},${y}`)
     }
@@ -221,6 +284,29 @@ export function CanvasRenderer() {
     return x >= selection.x && x < selection.x + selection.w &&
            y >= selection.y && y < selection.y + selection.h
   }, [selection, selectionMask])
+
+  const updateFloatingSelectionCells = useCallback((updates: { x: number; y: number; data: any }[]) => {
+    if (!floatingSelection || !selection) return false
+    const map = new Map<string, { dx: number; dy: number; data: any }>()
+    floatingSelection.forEach(item => {
+      map.set(`${item.dx},${item.dy}`, { ...item, data: { ...item.data } })
+    })
+    updates.forEach(({ x, y, data }) => {
+      const dx = x - selection.x
+      const dy = y - selection.y
+      if (dx < 0 || dy < 0 || dx >= selection.w || dy >= selection.h) return
+      const key = `${dx},${dy}`
+      const existing = map.get(key)
+      const nextData = { ...(existing?.data || {}), ...data }
+      if (nextData.char === '' && !nextData.bgColor) {
+        map.delete(key)
+      } else {
+        map.set(key, { dx, dy, data: nextData })
+      }
+    })
+    setFloatingSelection(Array.from(map.values()))
+    return true
+  }, [floatingSelection, selection, setFloatingSelection])
 
   // Helper to lift selection from canvas to floating state
   const liftSelection = () => {
@@ -330,8 +416,12 @@ export function CanvasRenderer() {
     if (!canvas || !container) return
 
     const updateSize = () => {
-      canvas.width = container.clientWidth
-      canvas.height = container.clientHeight
+      const rect = container.getBoundingClientRect()
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = Math.max(1, Math.round(rect.width * dpr))
+      canvas.height = Math.max(1, Math.round(rect.height * dpr))
+      canvas.style.width = `${rect.width}px`
+      canvas.style.height = `${rect.height}px`
       draw()
     }
 
@@ -359,330 +449,6 @@ export function CanvasRenderer() {
     const handleKeyDown = (e: KeyboardEvent) => {
         lastEventRef.current = e
         setModifiers({ shift: e.shiftKey, alt: e.altKey })
-
-        // Ignore if typing in an input
-        if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
-            return
-        }
-
-        // Select All: Ctrl+A or Ctrl+Ф
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyA' || e.key === 'a' || e.key === 'ф' || e.key === 'Ф')) {
-            e.preventDefault()
-            const fullSelection = {
-                x: -Math.floor(projectWidth / 2),
-                y: -Math.floor(projectHeight / 2),
-                w: projectWidth,
-                h: projectHeight
-            }
-            setSelection(fullSelection)
-            
-            const newMask = new Set<string>()
-            for (let y = 0; y < projectHeight; y++) {
-                for (let x = 0; x < projectWidth; x++) {
-                    const gx = fullSelection.x + x
-                    const gy = fullSelection.y + y
-                    newMask.add(`${gx},${gy}`)
-                }
-            }
-            setSelectionMask(newMask)
-            setSelectionPath(null)
-            return
-        }
-
-        // Copy: Ctrl+C or Ctrl+С
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyC' || e.key === 'c' || e.key === 'с' || e.key === 'С')) {
-            e.preventDefault()
-            if (!selection) return
-
-            let data: {x: number, y: number, data: any}[] = []
-            let width = selection.w
-            let height = selection.h
-
-            if (floatingSelection) {
-                // Copy floating selection
-                data = floatingSelection.map(item => ({
-                    x: item.dx,
-                    y: item.dy,
-                    data: item.data
-                }))
-            } else {
-                // Copy from canvas
-                const frame = frames[activeFrameIndex]
-                const activeLayer = frame?.layers.find(l => l.id === activeLayerId)
-                if (activeLayer) {
-                    for(let y = 0; y < selection.h; y++) {
-                        for(let x = 0; x < selection.w; x++) {
-                            const key = `${selection.x + x},${selection.y + y}`
-                            if (selectionMask && !selectionMask.has(key)) continue
-                            const cell = activeLayer.data.get(key)
-                            if (cell) {
-                                data.push({
-                                    x, y,
-                                    data: { ...cell }
-                                })
-                            }
-                        }
-                    }
-                }
-            }
-            setClipboard({ width, height, data })
-            return
-        }
-
-        // Cut: Ctrl+X or Ctrl+Ч
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyX' || e.key === 'x' || e.key === 'ч' || e.key === 'Ч')) {
-            e.preventDefault()
-            if (!selection) return
-
-            let data: {x: number, y: number, data: any}[] = []
-            let width = selection.w
-            let height = selection.h
-
-            if (floatingSelection) {
-                data = floatingSelection.map(item => ({
-                    x: item.dx, y: item.dy, data: item.data
-                }))
-                setFloatingSelection(null) // Clear floating
-            } else {
-                // Reuse lift logic but for cutting (don't set floating, just get items)
-                const items = liftSelection()
-                if (items) {
-                    data = items.map(item => ({ x: item.dx, y: item.dy, data: item.data }))
-                    setFloatingSelection(null)
-                }
-            }
-            setClipboard({ width, height, data })
-            return
-        }
-
-        // Paste: Ctrl+V or Ctrl+М
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyV' || e.key === 'v' || e.key === 'м' || e.key === 'М')) {
-            e.preventDefault()
-            const currentClipboard = useEditorStore.getState().clipboard
-            if (!currentClipboard) return
-
-            const performPaste = () => {
-                 // Commit existing floating selection if any
-                if (floatingSelection && selection) {
-                    saveSnapshot()
-                    const updates = floatingSelection.map(item => ({
-                        x: selection.x + item.dx,
-                        y: selection.y + item.dy,
-                        data: item.data
-                    }))
-                    batchUpdateCells(updates)
-                }
-
-                // Create new floating selection from clipboard
-                const newFloating = currentClipboard.data.map(item => ({
-                    dx: item.x,
-                    dy: item.y,
-                    data: item.data
-                }))
-
-                // Position at mouse cursor or center of screen
-                const targetX = hoverPos ? hoverPos.x : 0
-                const targetY = hoverPos ? hoverPos.y : 0
-
-                setSelection({
-                    x: targetX,
-                    y: targetY,
-                    w: currentClipboard.width,
-                    h: currentClipboard.height
-                })
-                setSelectionMask(null)
-                setSelectionPath(null)
-                setFloatingSelection(newFloating)
-            }
-
-            if (activeTool !== 'select') {
-                useEditorStore.getState().setActiveTool('select')
-                setTimeout(performPaste, 50)
-            } else {
-                performPaste()
-            }
-            return
-        }
-        
-        // Enter / Esc: Commit
-        if (e.key === 'Escape' || e.code === 'Escape') {
-            e.preventDefault()
-            e.stopPropagation()
-            
-            if (floatingSelection && selection) {
-                // Commit floating selection
-                saveSnapshot()
-                const updates = floatingSelection.map(item => ({
-                    x: selection.x + item.dx,
-                    y: selection.y + item.dy,
-                    data: item.data
-                }))
-                batchUpdateCells(updates)
-                setFloatingSelection(null)
-            }
-            
-            setSelection(null)
-            setSelectionPath(null)
-            setSelectionMask(null)
-            setIsMovingSelection(false)
-            return
-        }
-
-        if (e.key === 'Enter' || e.code === 'Enter') {
-             if (floatingSelection && selection) {
-                e.preventDefault()
-                e.stopPropagation()
-                // Enter: Commit
-                saveSnapshot()
-                const updates = floatingSelection.map(item => ({
-                    x: selection.x + item.dx,
-                    y: selection.y + item.dy,
-                    data: item.data
-                }))
-                batchUpdateCells(updates)
-                setFloatingSelection(null)
-             }
-             return
-        }
-
-        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-            e.preventDefault()
-            if (e.shiftKey) {
-                redo()
-            } else {
-                undo()
-            }
-        } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-            e.preventDefault()
-            redo()
-        } else if (e.code === 'Delete' || e.code === 'Backspace') {
-            if (selection && !isMovingSelection) {
-                // Delete selection content
-                e.preventDefault()
-                
-                if (floatingSelection) {
-                    setFloatingSelection(null)
-                    setSelection(null)
-                    setSelectionMask(null)
-                } else {
-                    saveSnapshot()
-                    
-                    const updates = []
-                    if (selectionMask) {
-                        selectionMask.forEach(key => {
-                            const [x, y] = key.split(',').map(Number)
-                            updates.push({ x, y, data: { char: '', color: '' } })
-                        })
-                    } else {
-                        for(let y = 0; y < selection.h; y++) {
-                            for(let x = 0; x < selection.w; x++) {
-                                updates.push({
-                                    x: selection.x + x,
-                                    y: selection.y + y,
-                                    data: { char: '', color: '' }
-                                })
-                            }
-                        }
-                    }
-                    batchUpdateCells(updates)
-                    setSelection(null)
-                    setSelectionMask(null)
-                    setStartPos(null)
-                    setIsDragging(false)
-                }
-            } else if (activeTool === 'brush') {
-                // Set secondary char to empty (Eraser analog for RMB)
-                useEditorStore.getState().setSecondaryChar('')
-            }
-        } else {
-            // Tool Shortcuts - Using e.code for layout-agnostic hotkeys
-        switch(e.code) {
-            case 'ArrowLeft':
-                if (selection) {
-                    e.preventDefault()
-                    const dx = -1, dy = 0
-                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
-                    if (selectionMask) {
-                        const newMask = new Set<string>()
-                        selectionMask.forEach(k => {
-                            const [x, y] = k.split(',').map(Number)
-                            newMask.add(`${x + dx},${y + dy}`)
-                        })
-                        setSelectionMask(newMask)
-                    }
-                    if (selectionPath) {
-                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
-                    }
-                }
-                break
-            case 'ArrowRight':
-                if (selection) {
-                    e.preventDefault()
-                    const dx = 1, dy = 0
-                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
-                    if (selectionMask) {
-                        const newMask = new Set<string>()
-                        selectionMask.forEach(k => {
-                            const [x, y] = k.split(',').map(Number)
-                            newMask.add(`${x + dx},${y + dy}`)
-                        })
-                        setSelectionMask(newMask)
-                    }
-                    if (selectionPath) {
-                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
-                    }
-                }
-                break
-            case 'ArrowUp':
-                if (selection) {
-                    e.preventDefault()
-                    const dx = 0, dy = -1
-                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
-                    if (selectionMask) {
-                        const newMask = new Set<string>()
-                        selectionMask.forEach(k => {
-                            const [x, y] = k.split(',').map(Number)
-                            newMask.add(`${x + dx},${y + dy}`)
-                        })
-                        setSelectionMask(newMask)
-                    }
-                    if (selectionPath) {
-                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
-                    }
-                }
-                break
-            case 'ArrowDown':
-                if (selection) {
-                    e.preventDefault()
-                    const dx = 0, dy = 1
-                    setSelection({ ...selection, x: selection.x + dx, y: selection.y + dy })
-                    if (selectionMask) {
-                        const newMask = new Set<string>()
-                        selectionMask.forEach(k => {
-                            const [x, y] = k.split(',').map(Number)
-                            newMask.add(`${x + dx},${y + dy}`)
-                        })
-                        setSelectionMask(newMask)
-                    }
-                    if (selectionPath) {
-                        setSelectionPath(selectionPath.map(p => ({ x: p.x + dx, y: p.y + dy })))
-                    }
-                }
-                break
-            case 'KeyB': useEditorStore.getState().setActiveTool('brush'); break;
-                case 'KeyE': useEditorStore.getState().setActiveTool('eraser'); break;
-                case 'KeyG': useEditorStore.getState().setActiveTool('fill'); break;
-                case 'KeyH': useEditorStore.getState().setActiveTool('gradient'); break;
-                case 'KeyL': useEditorStore.getState().setActiveTool('line'); break;
-                case 'KeyR': useEditorStore.getState().setActiveTool('rectangle'); break;
-                case 'KeyC': useEditorStore.getState().setActiveTool('circle'); break;
-                case 'KeyI': useEditorStore.getState().setActiveTool('eyedropper'); break;
-                case 'KeyS': useEditorStore.getState().setActiveTool('select'); break;
-            case 'KeyV': useEditorStore.getState().setActiveTool('move'); break;
-            case 'KeyK': useEditorStore.getState().setActiveTool('lasso'); break;
-                case 'KeyW': useEditorStore.getState().setActiveTool('magicWand'); break;
-            }
-        }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -708,19 +474,33 @@ export function CanvasRenderer() {
         window.removeEventListener('keyup', handleKeyUp)
         window.removeEventListener('mouseup', handleGlobalMouseUp)
     }
-  }, [undo, redo, activeTool, selection, selectionMask, isMovingSelection, isDragging, saveSnapshot, batchUpdateCells, frames, activeFrameIndex, activeLayerId, floatingSelection, hoverPos, setSelection, setClipboard, liftSelection, projectWidth, projectHeight])
+  }, [isDragging])
 
 
   const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-        // e.preventDefault() // React SyntheticEvent doesn't support preventing default on wheel for zoom sometimes, handled in useEffect usually
-        // But for passive listeners it's complex.
-    }
-    // Simple zoom logic
+    const container = containerRef.current
     const delta = -Math.sign(e.deltaY)
-    const factor = 0.1
-    const newZoom = Math.max(0.1, Math.min(10, zoom + delta * factor))
-    setZoom(newZoom)
+    const factor = 0.05
+    const nextZoom = Math.max(0.1, Math.min(10, zoom + delta * factor))
+    if (!container || nextZoom === zoom) {
+      setZoom(nextZoom)
+      return
+    }
+
+    const rect = container.getBoundingClientRect()
+    const cursorX = e.clientX - rect.left - rect.width / 2
+    const cursorY = e.clientY - rect.top - rect.height / 2
+
+    const worldX = (cursorX - pan.x) / zoom
+    const worldY = (cursorY - pan.y) / zoom
+
+    const nextPan = {
+      x: cursorX - worldX * nextZoom,
+      y: cursorY - worldY * nextZoom
+    }
+
+    setPan(nextPan)
+    setZoom(nextZoom)
   }
 
   const floodFill = (startX: number, startY: number, newChar: string, newColor: string) => {
@@ -736,11 +516,13 @@ export function CanvasRenderer() {
     if (targetChar === newChar && targetColor === newColor) return
 
     const queue: [number, number][] = [[startX, startY]]
+    let queueIndex = 0
     const visited = new Set([startKey])
     const updates: {x: number, y: number, data: any}[] = []
 
-    while (queue.length > 0) {
-        const [x, y] = queue.shift()!
+    while (queueIndex < queue.length) {
+        const [x, y] = queue[queueIndex]!
+        queueIndex += 1
         const key = `${x},${y}`
         
         // Skip if not in selection
@@ -765,7 +547,7 @@ export function CanvasRenderer() {
 
         for (const [nx, ny] of neighbors) {
             const key = `${nx},${ny}`
-            if (nx < -projectWidth / 2 || nx >= projectWidth / 2 || ny < -projectHeight / 2 || ny >= projectHeight / 2) continue
+            if (!isInBounds(nx, ny)) continue
             if (visited.has(key)) continue
 
             const cell = layer.data.get(key)
@@ -793,50 +575,39 @@ export function CanvasRenderer() {
     // Clear canvas (the whole window area)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // Fill the background of the entire viewport with workspace color
-    ctx.fillStyle = workspaceColor
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
     // Apply transformation
     ctx.save()
     ctx.translate(pan.x + canvas.width / 2, pan.y + canvas.height / 2)
     ctx.scale(zoom, zoom)
 
-    // Draw the actual Canvas/Project area
-    const width = projectWidth * GRID_SIZE
-    const height = projectHeight * GRID_SIZE
-    ctx.fillStyle = canvasBgColor
-    ctx.fillRect(-width / 2, -height / 2, width, height)
+    if (!inputOnly) {
+        if (mode === 'full') {
+          // Fill the background of the entire viewport with workspace color
+          ctx.fillStyle = workspaceColor
+          ctx.fillRect(-canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height)
+          // Draw Grid and Content handled by ThreeStage
+        }
 
-    // Draw Grid and Content
-    if (showGrid) {
-        drawGrid(ctx)
+        if (mode === 'overlay') {
+          if (showGrid) {
+            drawGrid(ctx)
+          }
+          if (showCenterGuide) {
+            drawCenterGuide(ctx)
+          }
+          if (onionSkinEnabled && activeFrameIndex > 0) {
+            drawOnionSkin(ctx)
+          }
+        }
     }
     
-    // Draw Center Guide
-    if (showCenterGuide) {
-        drawCenterGuide(ctx)
-    }
-    
-    // Draw Onion Skin (Previous Frame)
-    if (onionSkinEnabled && activeFrameIndex > 0) {
-        drawOnionSkin(ctx)
-    }
-
-    drawContent(ctx)
-    
-    // Draw Floating Selection
-    if (floatingSelection && selection) {
-        drawFloatingSelection(ctx)
-    }
-
     // Draw Preview for Line/Rectangle
     if (isDragging && startPos && hoverPos && activeTool !== 'select') {
        drawPreview(ctx)
     }
 
-    // Draw Selection Rect
-    if (selection || (isDragging && startPos && (activeTool === 'select' || activeTool === 'lasso'))) {
+    // Draw Selection Rect (Only during drag to avoid double render with ThreeStage)
+    if (isDragging && startPos && (activeTool === 'select' || activeTool === 'lasso')) {
         drawSelectionRect(ctx)
     }
 
@@ -846,31 +617,44 @@ export function CanvasRenderer() {
     }
 
     ctx.restore()
-  }, [pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, selectionMask, selectionPath, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor])
+  }, [mode, pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, selectionMask, selectionPath, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor, inputOnly])
 
-    // Request Animation Frame for smooth rendering
-    useEffect(() => {
-      let animationFrameId: number
-  
-      const render = () => {
+    const drawRequestRef = useRef<number | null>(null)
+    const scheduleDraw = useCallback(() => {
+      if (inputOnly) return
+      if (drawRequestRef.current !== null) return
+      drawRequestRef.current = requestAnimationFrame(() => {
+        drawRequestRef.current = null
         draw()
-        animationFrameId = requestAnimationFrame(render)
+      })
+    }, [draw, inputOnly])
+
+    useEffect(() => {
+      if (!inputOnly) scheduleDraw()
+      return () => {
+        if (drawRequestRef.current !== null) {
+          cancelAnimationFrame(drawRequestRef.current)
+          drawRequestRef.current = null
+        }
       }
-      
-      render()
-      return () => cancelAnimationFrame(animationFrameId)
-    }, [draw])
+    }, [scheduleDraw, mode, pan, zoom, workspaceColor, showGrid, showCenterGuide, onionSkinEnabled, activeFrameIndex, frames, activeLayerId, floatingSelection, selection, selectionMask, selectionPath, isDragging, startPos, hoverPos, activeTool, canvasBgColor, projectWidth, projectHeight, secondaryChar, brushChar, secondaryColor, brushColor, inputOnly])
 
   const drawCenterGuide = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#ffcc00'
-    ctx.lineWidth = 2 / zoom
+    const width = projectWidth * GRID_SIZE
+    const height = projectHeight * GRID_SIZE
+    const halfWidth = Math.floor(projectWidth / 2)
+    const halfHeight = Math.floor(projectHeight / 2)
+    const startX = (-halfWidth - 0.5) * GRID_SIZE
+    const startY = (-halfHeight - 0.5) * GRID_SIZE
+    ctx.strokeStyle = '#ffd54a'
+    ctx.lineWidth = 2 / Math.max(1, zoom)
     ctx.beginPath()
     // Vertical
-    ctx.moveTo(0, -projectHeight * GRID_SIZE / 2)
-    ctx.lineTo(0, projectHeight * GRID_SIZE / 2)
+    ctx.moveTo(0, startY)
+    ctx.lineTo(0, startY + height)
     // Horizontal
-    ctx.moveTo(-projectWidth * GRID_SIZE / 2, 0)
-    ctx.lineTo(projectWidth * GRID_SIZE / 2, 0)
+    ctx.moveTo(startX, 0)
+    ctx.lineTo(startX + width, 0)
     ctx.stroke()
   }
 
@@ -886,22 +670,26 @@ export function CanvasRenderer() {
 
     const width = projectWidth * GRID_SIZE
     const height = projectHeight * GRID_SIZE
+    const halfWidth = Math.floor(projectWidth / 2)
+    const halfHeight = Math.floor(projectHeight / 2)
+    const startX = (-halfWidth - 0.5) * GRID_SIZE
+    const startY = (-halfHeight - 0.5) * GRID_SIZE
 
-    ctx.strokeStyle = '#333'
-    ctx.lineWidth = 1 / zoom
+    ctx.strokeStyle = '#4a4a4a'
+    ctx.lineWidth = 1 / Math.max(1, zoom)
 
     ctx.beginPath()
     // Vertical lines
-    for (let i = Math.max(0, viewportMinX + projectWidth / 2); i <= Math.min(projectWidth, viewportMaxX + projectWidth / 2); i++) {
-      const x = -width / 2 + i * GRID_SIZE
-      ctx.moveTo(x, -height / 2)
-      ctx.lineTo(x, height / 2)
+    for (let i = Math.max(0, viewportMinX + halfWidth + 1); i <= Math.min(projectWidth, viewportMaxX + halfWidth + 1); i++) {
+      const x = startX + i * GRID_SIZE
+      ctx.moveTo(x, startY)
+      ctx.lineTo(x, startY + height)
     }
     // Horizontal lines
-    for (let i = Math.max(0, viewportMinY + projectHeight / 2); i <= Math.min(projectHeight, viewportMaxY + projectHeight / 2); i++) {
-      const y = -height / 2 + i * GRID_SIZE
-      ctx.moveTo(-width / 2, y)
-      ctx.lineTo(width / 2, y)
+    for (let i = Math.max(0, viewportMinY + halfHeight + 1); i <= Math.min(projectHeight, viewportMaxY + halfHeight + 1); i++) {
+      const y = startY + i * GRID_SIZE
+      ctx.moveTo(startX, y)
+      ctx.lineTo(startX + width, y)
     }
     ctx.stroke()
   }
@@ -938,8 +726,8 @@ export function CanvasRenderer() {
             continue
         }
 
-        const px = x * GRID_SIZE + GRID_SIZE / 2
-        const py = y * GRID_SIZE + GRID_SIZE / 2
+        const px = x * GRID_SIZE
+        const py = y * GRID_SIZE
 
         if (cell.bgColor) {
           ctx.fillStyle = cell.bgColor
@@ -956,109 +744,21 @@ export function CanvasRenderer() {
     ctx.restore()
   }
 
-  const drawContent = (ctx: CanvasRenderingContext2D) => {
-    const frame = frames[activeFrameIndex]
-    if (!frame) return
+  /* removed unused drawContent */
 
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    // Calculate viewport bounds in grid coordinates to optimize drawing
-    const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
-    const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
-    const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
-    const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
-
-    // Font settings
-    ctx.font = `${FONT_SIZE}px "Press Start 2P"`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-
-    // Iterate over layers (bottom to top)
-    frame.layers.forEach(layer => {
-      if (!layer.visible) return
-
-      // Use Map iterator
-      for (const [key, cell] of layer.data.entries()) {
-        const [x, y] = key.split(',').map(Number)
-        
-        // Culling: Only draw if within viewport
-        if (x < viewportMinX || x > viewportMaxX || y < viewportMinY || y > viewportMaxY) {
-            continue
-        }
-        
-        const px = x * GRID_SIZE + GRID_SIZE / 2
-        const py = y * GRID_SIZE + GRID_SIZE / 2
-
-        // Draw background if exists
-        if (cell.bgColor) {
-          ctx.fillStyle = cell.bgColor
-          // Adjust rect position back to top-left for filling
-          ctx.fillRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
-        }
-
-        // Draw character
-        if (cell.char) {
-          ctx.fillStyle = cell.color
-          ctx.globalAlpha = layer.opacity
-          
-          if (cell.char === ' ') {
-             // Draw Space Indicator (small dot)
-             const size = 2 / zoom
-             ctx.fillRect(px - size/2, py - size/2, size, size)
-          } else {
-             ctx.fillText(cell.char, px, py + 2) // +2 for visual alignment
-          }
-          
-          ctx.globalAlpha = 1.0
-        }
-      }
-    })
+  const getBounds = () => {
+    const halfW = Math.floor(projectWidth / 2)
+    const halfH = Math.floor(projectHeight / 2)
+    const minX = -halfW
+    const maxX = projectWidth - halfW - 1
+    const minY = -halfH
+    const maxY = projectHeight - halfH - 1
+    return { minX, maxX, minY, maxY }
   }
 
-  const drawFloatingSelection = (ctx: CanvasRenderingContext2D) => {
-      if (!floatingSelection || !selection) return
-
-      const canvas = canvasRef.current
-      if (!canvas) return
-
-      // Calculate viewport bounds in grid coordinates to optimize drawing
-      const viewportMinX = Math.floor((-canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
-      const viewportMaxX = Math.ceil((canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
-      const viewportMinY = Math.floor((-canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
-      const viewportMaxY = Math.ceil((canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
-
-      ctx.font = `${FONT_SIZE}px "Press Start 2P"`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-
-      floatingSelection.forEach(item => {
-          const x = selection.x + item.dx
-          const y = selection.y + item.dy
-          
-          // Culling: Only draw if within viewport
-          if (x < viewportMinX || x > viewportMaxX || y < viewportMinY || y > viewportMaxY) {
-              return
-          }
-
-          const px = x * GRID_SIZE + GRID_SIZE / 2
-          const py = y * GRID_SIZE + GRID_SIZE / 2
-
-          if (item.data.bgColor) {
-              ctx.fillStyle = item.data.bgColor
-              ctx.fillRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
-          }
-
-          if (item.data.char) {
-              ctx.fillStyle = item.data.color
-              if (item.data.char === ' ') {
-                 const size = 2 / zoom
-                 ctx.fillRect(px - size/2, py - size/2, size, size)
-              } else {
-                 ctx.fillText(item.data.char, px, py + 2)
-              }
-          }
-      })
+  const isInBounds = (x: number, y: number) => {
+    const { minX, maxX, minY, maxY } = getBounds()
+    return x >= minX && x <= maxX && y >= minY && y <= maxY
   }
 
   const drawSelectionRect = (ctx: CanvasRenderingContext2D) => {
@@ -1070,88 +770,84 @@ export function CanvasRenderer() {
                           (modifiers.alt ? 'subtract' : 
                           (lastEventRef.current?.ctrlKey ? 'new' : selectionMode)))
 
-      // Lasso Path Preview
-      if (activeTool === 'lasso' && isDragging && selectionPath && selectionPath.length > 0) {
-          ctx.save()
-          ctx.strokeStyle = '#fff'
-          ctx.lineWidth = 1 / zoom
-          ctx.setLineDash([5 / zoom, 5 / zoom])
-          ctx.beginPath()
-          selectionPath.forEach((p, i) => {
-              const px = p.x * GRID_SIZE + GRID_SIZE / 2
-              const py = p.y * GRID_SIZE + GRID_SIZE / 2
-              if (i === 0) ctx.moveTo(px, py)
-              else ctx.lineTo(px, py)
-          })
-          
-          // Connect to current hover position to show pending segment
-          if (hoverPos) {
-              const hpx = hoverPos.x * GRID_SIZE + GRID_SIZE / 2
-              const hpy = hoverPos.y * GRID_SIZE + GRID_SIZE / 2
-              ctx.lineTo(hpx, hpy)
-          }
-          
-          ctx.stroke()
-          
-          // Draw small points at path vertices
-          ctx.fillStyle = '#fff'
-          selectionPath.forEach(p => {
-              const px = p.x * GRID_SIZE + GRID_SIZE / 2
-              const py = p.y * GRID_SIZE + GRID_SIZE / 2
-              ctx.fillRect(px - 2/zoom, py - 2/zoom, 4/zoom, 4/zoom)
-          })
-          
-          ctx.restore()
+      const modeStyle = currentMode === 'add'
+        ? { stroke: '#7cff9a', fill: 'rgba(124, 255, 154, 0.12)' }
+        : currentMode === 'subtract'
+        ? { stroke: '#ff7a7a', fill: 'rgba(255, 122, 122, 0.12)' }
+        : currentMode === 'intersect'
+        ? { stroke: '#ffd27a', fill: 'rgba(255, 210, 122, 0.12)' }
+        : { stroke: '#7fd3ff', fill: 'rgba(127, 211, 255, 0.12)' }
+
+      const modeLabel = currentMode === 'add'
+        ? 'ADD'
+        : currentMode === 'subtract'
+        ? 'SUB'
+        : currentMode === 'intersect'
+        ? 'INT'
+        : 'NEW'
+
+      const drawModeTag = (x: number, y: number) => {
+        const text = ` ${modeLabel} `
+        ctx.save()
+        ctx.font = `${Math.max(10, Math.round(10 / zoom))}px "Press Start 2P"`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        const metrics = ctx.measureText(text)
+        const pad = Math.max(2, Math.round(2 / zoom))
+        const w = metrics.width + pad * 2
+        const h = Math.max(10, Math.round(12 / zoom))
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+        ctx.fillRect(x, y, w, h)
+        ctx.strokeStyle = modeStyle.stroke
+        ctx.lineWidth = 1 / zoom
+        ctx.strokeRect(x, y, w, h)
+        ctx.fillStyle = modeStyle.stroke
+        ctx.fillText(text, x + pad, y + 1 / zoom)
+        ctx.restore()
       }
 
+      const getMaskBounds = (keys: Set<string>) => {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        keys.forEach(key => {
+          const [x, y] = key.split(',').map(Number)
+          minX = Math.min(minX, x)
+          minY = Math.min(minY, y)
+          maxX = Math.max(maxX, x)
+          maxY = Math.max(maxY, y)
+        })
+        if (!isFinite(minX) || !isFinite(minY)) return null
+        return { minX, minY, maxX, maxY }
+      }
+
+      // Lasso Path Preview - Handled by ThreeStage
+      // Rectangle selection preview - Handled by ThreeStage
+      
+      const moveOffset = isMovingSelection ? selectionMoveOffsetRef.current : { x: 0, y: 0 }
       if (rect || tempMask) {
           ctx.save()
-          ctx.strokeStyle = '#fff'
-          ctx.lineWidth = 1 / zoom
-          ctx.setLineDash([5 / zoom, 5 / zoom])
+          ctx.strokeStyle = modeStyle.stroke
+          ctx.lineWidth = 2 / zoom
+          ctx.setLineDash([])
           
           // 1. Draw existing selection
+          // Visuals (fill/border) are now handled by ThreeStage for better performance and effects.
+          // We only draw the mode tag here.
           if (mask) {
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-              mask.forEach(key => {
-                  const [x, y] = key.split(',').map(Number)
-                  const px = x * GRID_SIZE
-                  const py = y * GRID_SIZE
-                  ctx.fillRect(px, py, GRID_SIZE, GRID_SIZE)
-                  
-                  const neighbors = [[1,0], [-1,0], [0,1], [0,-1]]
-                  neighbors.forEach(([dx, dy]) => {
-                      if (!mask!.has(`${x+dx},${y+dy}`)) {
-                          ctx.beginPath()
-                          if (dx === 1) { ctx.moveTo(px + GRID_SIZE, py); ctx.lineTo(px + GRID_SIZE, py + GRID_SIZE) }
-                          if (dx === -1) { ctx.moveTo(px, py); ctx.lineTo(px, py + GRID_SIZE) }
-                          if (dy === 1) { ctx.moveTo(px, py + GRID_SIZE); ctx.lineTo(px + GRID_SIZE, py + GRID_SIZE) }
-                          if (dy === -1) { ctx.moveTo(px, py); ctx.lineTo(px + GRID_SIZE, py) }
-                          ctx.stroke()
-                      }
-                  })
-              })
+              const bounds = getMaskBounds(mask)
+              if (bounds) {
+                const tagX = (bounds.minX + moveOffset.x) * GRID_SIZE - GRID_SIZE / 2
+                const tagY = (bounds.minY + moveOffset.y) * GRID_SIZE - GRID_SIZE / 2 - 16 / zoom
+                drawModeTag(tagX, tagY)
+              }
           } else if (rect) {
-              const px = rect.x * GRID_SIZE
-              const py = rect.y * GRID_SIZE
-              const pw = rect.w * GRID_SIZE
-              const ph = rect.h * GRID_SIZE
-              ctx.strokeRect(px, py, pw, ph)
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-              ctx.fillRect(px, py, pw, ph)
+              const px = rect.x * GRID_SIZE - GRID_SIZE / 2
+              const py = rect.y * GRID_SIZE - GRID_SIZE / 2
+              drawModeTag(px, py - 16 / zoom)
           }
 
           // 2. Draw preview of what's being dragged (Temp Mask)
           if (tempMask) {
-              if (currentMode === 'add') {
-                  ctx.fillStyle = 'rgba(0, 255, 0, 0.3)'
-              } else if (currentMode === 'subtract') {
-                  ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'
-              } else if (currentMode === 'intersect') {
-                  ctx.fillStyle = 'rgba(0, 255, 255, 0.3)'
-              } else {
-                  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'
-              }
+              ctx.fillStyle = modeStyle.fill
 
               tempMask.forEach(key => {
                   const [x, y] = key.split(',').map(Number)
@@ -1174,10 +870,7 @@ export function CanvasRenderer() {
           const x1 = hoverPos.x
           const y1 = hoverPos.y
           
-          let minX = -projectWidth / 2
-          let maxX = projectWidth / 2 - 1
-          let minY = -projectHeight / 2
-          let maxY = projectHeight / 2 - 1
+          let { minX, maxX, minY, maxY } = getBounds()
 
           if (selection) {
               minX = selection.x
@@ -1199,14 +892,13 @@ export function CanvasRenderer() {
 
                    let factor = 0
 
-                  if (gradientType === 'linear') {
-                      if (lenSq === 0) factor = 0
-                      else {
-                          const px = x - x0
-                          const py = y - y0
-                          const dot = px * dx + py * dy
-                          factor = dot / lenSq
-                      }
+                  if (lenSq === 0) {
+                      factor = 0
+                  } else if (gradientType === 'linear') {
+                      const px = x - x0
+                      const py = y - y0
+                      const dot = px * dx + py * dy
+                      factor = dot / lenSq
                   } else {
                       const dist = Math.sqrt((x - x0) ** 2 + (y - y0) ** 2)
                       factor = dist / radius
@@ -1215,8 +907,8 @@ export function CanvasRenderer() {
                   factor = Math.max(0, Math.min(1, factor))
                   const color = interpolateColor(gradientColorStart, gradientColorEnd, factor)
 
-                  const px = x * GRID_SIZE + GRID_SIZE / 2
-                  const py = y * GRID_SIZE + GRID_SIZE / 2
+                  const px = x * GRID_SIZE
+                  const py = y * GRID_SIZE
                   
                   ctx.fillStyle = color
                   ctx.fillRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
@@ -1225,8 +917,8 @@ export function CanvasRenderer() {
           
           // Draw direction line on top
           ctx.beginPath()
-          ctx.moveTo(x0 * GRID_SIZE + GRID_SIZE/2, y0 * GRID_SIZE + GRID_SIZE/2)
-          ctx.lineTo(x1 * GRID_SIZE + GRID_SIZE/2, y1 * GRID_SIZE + GRID_SIZE/2)
+          ctx.moveTo(x0 * GRID_SIZE, y0 * GRID_SIZE)
+          ctx.lineTo(x1 * GRID_SIZE, y1 * GRID_SIZE)
           ctx.strokeStyle = '#fff'
           ctx.lineWidth = 2
           ctx.stroke()
@@ -1251,16 +943,12 @@ export function CanvasRenderer() {
       ctx.textBaseline = 'middle'
       
       points.forEach(p => {
-          // Check bounds
-          if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
-              p.y < -projectHeight / 2 || p.y >= projectHeight / 2) {
-              return
-          }
+          if (!isInBounds(p.x, p.y)) return
 
           if (!isPointInSelection(p.x, p.y)) return
 
-          const px = p.x * GRID_SIZE + GRID_SIZE / 2
-          const py = p.y * GRID_SIZE + GRID_SIZE / 2
+          const px = p.x * GRID_SIZE
+          const py = p.y * GRID_SIZE
           
           // Draw preview background
           ctx.fillRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
@@ -1275,28 +963,28 @@ export function CanvasRenderer() {
 
   const drawCursor = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
     // Only draw cursor if inside project bounds or using select tool
-    const isOutOfBounds = x < -projectWidth / 2 || x >= projectWidth / 2 || y < -projectHeight / 2 || y >= projectHeight / 2
+    const isOutOfBounds = !isInBounds(x, y)
     if (isOutOfBounds && activeTool !== 'select') return
 
     const px = x * GRID_SIZE
     const py = y * GRID_SIZE
     
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
-    ctx.lineWidth = 1 / zoom
-    ctx.strokeRect(px, py, GRID_SIZE, GRID_SIZE)
+    ctx.strokeStyle = 'rgba(190, 190, 190, 0.85)'
+    ctx.lineWidth = 1.5 / zoom
+    ctx.strokeRect(px - GRID_SIZE / 2, py - GRID_SIZE / 2, GRID_SIZE, GRID_SIZE)
     
     // If drawing, show preview of what will be placed
-    if (!isDragging && activeTool === 'brush') {
+    if (activeTool === 'brush') {
         ctx.save()
-        ctx.globalAlpha = 0.5
-        const char = brushChar
-        const color = brushColor
+        ctx.globalAlpha = 0.6
+        const char = isRightClick.current ? secondaryChar : brushChar
+        const color = isRightClick.current ? secondaryColor : brushColor
         
         ctx.font = `${FONT_SIZE}px "Press Start 2P"`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillStyle = color
-        ctx.fillText(char, px + GRID_SIZE / 2, py + GRID_SIZE / 2 + 2)
+        ctx.fillText(char, px, py + 2)
         ctx.restore()
     }
   }
@@ -1308,14 +996,33 @@ export function CanvasRenderer() {
     
     const rect = canvas.getBoundingClientRect()
     // Using Math.floor for grid alignment
-    const x = Math.floor((e.clientX - rect.left - canvas.width / 2 - pan.x) / (zoom * GRID_SIZE))
-    const y = Math.floor((e.clientY - rect.top - canvas.height / 2 - pan.y) / (zoom * GRID_SIZE))
+    const { minX, maxX, minY, maxY } = getBounds()
+    let x = Math.floor((e.clientX - rect.left - rect.width / 2 - pan.x) / (zoom * GRID_SIZE) + 0.5)
+    let y = Math.floor((e.clientY - rect.top - rect.height / 2 - pan.y) / (zoom * GRID_SIZE) + 0.5)
+    x = Math.max(minX, Math.min(maxX, x))
+    y = Math.max(minY, Math.min(maxY, y))
     
     return { x, y }
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
     lastEventRef.current = e
+    if (activeTab === '3D') {
+      e.preventDefault()
+      setAutoRotate3D(false)
+      const radius = Math.max(10, Math.max(projectWidth, projectHeight))
+      const baseState =
+        cameraState3D ?? { position: [radius, radius * 0.6, radius] as [number, number, number], target: [0, 0, 0] as [number, number, number] }
+      if (!cameraState3D) setCameraState3D(baseState)
+      nav3DRef.current = {
+        mode: e.button === 2 || e.button === 1 ? 'pan' : 'orbit',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startPos: baseState.position,
+        startTarget: baseState.target,
+      }
+      return
+    }
     if (e.button === 1) { // Middle click for panning
       setIsDragging(true)
       lastMousePos.current = { x: e.clientX, y: e.clientY }
@@ -1326,7 +1033,7 @@ export function CanvasRenderer() {
     isRightClick.current = e.button === 2
     
     // Check Bounds
-    const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
+    const isOutOfBounds = !isInBounds(pos.x, pos.y)
     if (isOutOfBounds && (activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand')) return
 
     if (activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand' || activeTool === 'move') {
@@ -1345,7 +1052,6 @@ export function CanvasRenderer() {
         }
 
         // Determine effective mode based on modifiers
-        const isModifierActive = e.shiftKey || e.altKey || e.ctrlKey
         const isShiftAlt = e.shiftKey || e.altKey
         const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
                                (e.shiftKey ? 'add' : 
@@ -1365,6 +1071,8 @@ export function CanvasRenderer() {
 
                 if (floatingSelection) {
                     setIsMovingSelection(true)
+                    selectionMoveOffsetRef.current = { x: 0, y: 0 }
+                    setSelectionMoveOffset({ x: 0, y: 0 })
                     setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
                 } else {
                     if (isDuplicate) {
@@ -1385,11 +1093,15 @@ export function CanvasRenderer() {
                         }
                         setFloatingSelection(items)
                         setIsMovingSelection(true)
+                        selectionMoveOffsetRef.current = { x: 0, y: 0 }
+                        setSelectionMoveOffset({ x: 0, y: 0 })
                         setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
                     } else {
                         const items = liftSelection()
                         if (items) {
                             setIsMovingSelection(true)
+                            selectionMoveOffsetRef.current = { x: 0, y: 0 }
+                            setSelectionMoveOffset({ x: 0, y: 0 })
                             setDragOffset({ x: pos.x - selection.x, y: pos.y - selection.y })
                         }
                     }
@@ -1403,7 +1115,7 @@ export function CanvasRenderer() {
             const items: {dx: number, dy: number, data: any}[] = []
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
             
-            layer.data.forEach((cell, key) => {
+            layer.data.forEach((_, key) => {
                 const [x, y] = key.split(',').map(Number)
                 minX = Math.min(minX, x); minY = Math.min(minY, y)
                 maxX = Math.max(maxX, x); maxY = Math.max(maxY, y)
@@ -1422,6 +1134,8 @@ export function CanvasRenderer() {
             setSelection(newSelection)
             setFloatingSelection(items)
             setIsMovingSelection(true)
+            selectionMoveOffsetRef.current = { x: 0, y: 0 }
+            setSelectionMoveOffset({ x: 0, y: 0 })
             setDragOffset({ x: pos.x - minX, y: pos.y - minY })
         } else if (layer) {
             // Layer is empty, but we might want to "start dragging" to avoid errors
@@ -1432,23 +1146,22 @@ export function CanvasRenderer() {
         }
 
         // Selection logic (if not moving)
-        if (activeTool !== 'move') {
-            // Commit previous floating if exists and we are starting a NEW selection action
-            // or if we are clicking outside the current floating selection to drop it
-            if (floatingSelection && selection && (effectiveMode === 'new' || !clickedInside)) {
-                saveSnapshot()
-                const updates = floatingSelection.map(item => ({
-                    x: selection.x + item.dx,
-                    y: selection.y + item.dy,
-                    data: item.data
-                }))
-                batchUpdateCells(updates)
-                setFloatingSelection(null)
-                setSelection(null)
-                setSelectionMask(null)
-            }
-            
-            if (activeTool === 'magicWand') {
+        // Commit previous floating if exists and we are starting a NEW selection action
+        // or if we are clicking outside the current floating selection to drop it
+        if (floatingSelection && selection && (effectiveMode === 'new' || !clickedInside)) {
+            saveSnapshot()
+            const updates = floatingSelection.map(item => ({
+                x: selection.x + item.dx,
+                y: selection.y + item.dy,
+                data: item.data
+            }))
+            batchUpdateCells(updates)
+            setFloatingSelection(null)
+            setSelection(null)
+            setSelectionMask(null)
+        }
+        
+        if (activeTool === 'magicWand') {
                 const frame = frames[activeFrameIndex]
                 const layer = frame?.layers.find(l => l.id === activeLayerId)
                 if (layer) {
@@ -1525,7 +1238,6 @@ export function CanvasRenderer() {
                 setIsDragging(true)
                 setStartPos(pos)
                 if (activeTool === 'lasso') setSelectionPath([pos])
-            }
         }
         return
     }
@@ -1543,15 +1255,31 @@ export function CanvasRenderer() {
             const current = layer?.data.get(`${pos.x},${pos.y}`)
             
             if (isPointInSelection(pos.x, pos.y)) {
-                setCell(pos.x, pos.y, { 
-                    char, 
-                    color, 
-                    bgColor: current?.bgColor || '' 
-                })
+                const applied = updateFloatingSelectionCells([{
+                    x: pos.x,
+                    y: pos.y,
+                    data: { char, color }
+                }])
+                if (!applied) {
+                    setCell(pos.x, pos.y, { 
+                        char, 
+                        color, 
+                        bgColor: current?.bgColor || '' 
+                    })
+                }
+                lastDrawPos.current = { x: pos.x, y: pos.y }
             }
         } else if (activeTool === 'eraser') {
             if (isPointInSelection(pos.x, pos.y)) {
-                setCell(pos.x, pos.y, { char: '', color: '' })
+                const applied = updateFloatingSelectionCells([{
+                    x: pos.x,
+                    y: pos.y,
+                    data: { char: '', color: '' }
+                }])
+                if (!applied) {
+                    setCell(pos.x, pos.y, { char: '', color: '' })
+                }
+                lastDrawPos.current = { x: pos.x, y: pos.y }
             }
         } else if (activeTool === 'fill') {
             const char = isRightClick.current ? secondaryChar : brushChar
@@ -1576,6 +1304,58 @@ export function CanvasRenderer() {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     lastEventRef.current = e
+    if (activeTab === '3D') {
+      const nav = nav3DRef.current
+      if (!nav || e.buttons === 0) return
+      e.preventDefault()
+      setAutoRotate3D(false)
+
+      const dx = e.clientX - nav.startClientX
+      const dy = e.clientY - nav.startClientY
+
+      const startPos = new THREE.Vector3(...nav.startPos)
+      const startTarget = new THREE.Vector3(...nav.startTarget)
+
+      if (nav.mode === 'orbit') {
+        const offset = startPos.clone().sub(startTarget)
+        const spherical = new THREE.Spherical()
+        spherical.setFromVector3(offset)
+
+        const rotateSpeed = 0.005
+        spherical.theta -= dx * rotateSpeed
+        spherical.phi -= dy * rotateSpeed
+        spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi))
+
+        const nextPos = new THREE.Vector3().setFromSpherical(spherical).add(startTarget)
+        setCameraState3D({
+          position: [nextPos.x, nextPos.y, nextPos.z],
+          target: [startTarget.x, startTarget.y, startTarget.z],
+        })
+        return
+      }
+
+      const container = containerRef.current
+      const rect = container?.getBoundingClientRect()
+      const h = Math.max(1, rect?.height ?? 1)
+      const fov = 45 * (Math.PI / 180)
+      const dist = Math.max(1e-6, startPos.distanceTo(startTarget))
+      const worldPerPixel = (2 * dist * Math.tan(fov * 0.5)) / h
+
+      const dir = startPos.clone().sub(startTarget).normalize()
+      const up = new THREE.Vector3(0, 1, 0)
+      const right = new THREE.Vector3().crossVectors(up, dir).normalize()
+      const camUp = new THREE.Vector3().crossVectors(dir, right).normalize()
+
+      const panOffset = right.multiplyScalar(-dx * worldPerPixel).add(camUp.multiplyScalar(dy * worldPerPixel))
+      const nextPos = startPos.clone().add(panOffset)
+      const nextTarget = startTarget.clone().add(panOffset)
+
+      setCameraState3D({
+        position: [nextPos.x, nextPos.y, nextPos.z],
+        target: [nextTarget.x, nextTarget.y, nextTarget.z],
+      })
+      return
+    }
     if (isDragging && e.buttons === 4) { // Panning
       const dx = e.clientX - lastMousePos.current.x
       const dy = e.clientY - lastMousePos.current.y
@@ -1586,21 +1366,25 @@ export function CanvasRenderer() {
 
     const pos = getMousePos(e)
     setHoverPos(pos)
+    setCursorPos(pos)
 
     if (isDragging) {
-        // Drawing logic with clipping
-        const isOutOfBounds = pos.x < -projectWidth / 2 || pos.x >= projectWidth / 2 || pos.y < -projectHeight / 2 || pos.y >= projectHeight / 2
-        
-        // Selection preview color logic
-        let previewColor = 'rgba(255, 255, 255, 0.3)' // Default for NEW
-        if (e.shiftKey && e.altKey) {
-            previewColor = 'rgba(255, 255, 0, 0.3)' // Yellow for INTERSECT
-        } else if (e.shiftKey) {
-            previewColor = 'rgba(0, 255, 0, 0.3)' // Green for ADD
-        } else if (e.altKey) {
-            previewColor = 'rgba(255, 0, 0, 0.3)' // Red for SUBTRACT
+        if (startPos && (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle')) {
+            let points: {x: number, y: number}[] = []
+            if (activeTool === 'line') {
+                points = getLinePoints(startPos.x, startPos.y, pos.x, pos.y)
+            } else if (activeTool === 'rectangle') {
+                points = getRectPoints(startPos.x, startPos.y, pos.x, pos.y)
+            } else {
+                points = getCirclePoints(startPos.x, startPos.y, pos.x, pos.y)
+            }
+            setOverlayDraft({ type: activeTool, points })
+        } else if (startPos && activeTool === 'gradient') {
+            setOverlayDraft({ type: 'gradient', dir: { x0: startPos.x, y0: startPos.y, x1: pos.x, y1: pos.y } })
         }
-
+        // Drawing logic with clipping
+        const isOutOfBounds = !isInBounds(pos.x, pos.y)
+        
         // Handle Temp Mask for selection tools (RECTANGLE ONLY)
         if (activeTool === 'select' && !isMovingSelection && startPos) {
             const minX = Math.min(startPos.x, pos.x)
@@ -1616,27 +1400,21 @@ export function CanvasRenderer() {
             setTempMask(newTemp)
         }
 
-        const isModifierActive = e.shiftKey || e.altKey || e.ctrlKey
-
         // Handle Lasso Path recording
         if (activeTool === 'lasso' && !isMovingSelection) {
-            if (selectionPath) {
-                const lastPos = selectionPath[selectionPath.length - 1]
-                if (lastPos.x !== pos.x || lastPos.y !== pos.y) {
-                    const newPath = [...selectionPath, pos]
-                    setSelectionPath(newPath)
-                    
-                    // Update temp mask for lasso preview
-                    const newTemp = new Set<string>()
-                    newPath.forEach(p => newTemp.add(`${p.x},${p.y}`))
-                    // For better preview, connect dots with lines
-                    for (let i = 0; i < newPath.length - 1; i++) {
-                        const line = getLinePoints(newPath[i].x, newPath[i].y, newPath[i+1].x, newPath[i+1].y)
-                        line.forEach(p => newTemp.add(`${p.x},${p.y}`))
-                    }
-                    setTempMask(newTemp)
-                }
+            const currentPath = selectionPathRef.current
+            if (!currentPath || currentPath.length === 0) return
+            const lastPos = currentPath[currentPath.length - 1]
+            if (lastPos.x === pos.x && lastPos.y === pos.y) return
+            const newPath = [...currentPath, pos]
+            const newTemp = new Set<string>()
+            newPath.forEach(p => newTemp.add(`${p.x},${p.y}`))
+            for (let i = 0; i < newPath.length - 1; i++) {
+                const line = getLinePoints(newPath[i].x, newPath[i].y, newPath[i + 1].x, newPath[i + 1].y)
+                line.forEach(p => newTemp.add(`${p.x},${p.y}`))
             }
+            setTempMask(newTemp)
+            setSelectionPath(newPath)
             return
         }
 
@@ -1653,48 +1431,118 @@ export function CanvasRenderer() {
                     x: newX,
                     y: newY
                 })
-                
-                if (selectionMask) {
-                    const newMask = new Set<string>()
-                    selectionMask.forEach(key => {
-                        const [x, y] = key.split(',').map(Number)
-                        newMask.add(`${x + dx},${y + dy}`)
-                    })
-                    setSelectionMask(newMask)
+                selectionMoveOffsetRef.current = { 
+                    x: selectionMoveOffsetRef.current.x + dx, 
+                    y: selectionMoveOffsetRef.current.y + dy 
                 }
-
-                if (selectionPath) {
-                    const newPath = selectionPath.map(p => ({
-                        x: p.x + dx,
-                        y: p.y + dy
-                    }))
-                    setSelectionPath(newPath)
-                }
+                setSelectionMoveOffset(selectionMoveOffsetRef.current)
             }
             return
         }
 
+        // Handle Gradient Preview
+        if (activeTool === 'gradient' && !isMovingSelection && startPos) {
+             const x0 = startPos.x
+             const y0 = startPos.y
+             const x1 = pos.x
+             const y1 = pos.y
+             
+             let { minX, maxX, minY, maxY } = getBounds()
+
+             if (selection) {
+                 minX = selection.x
+                 maxX = selection.x + selection.w - 1
+                 minY = selection.y
+                 maxY = selection.y + selection.h - 1
+             }
+
+             const dx = x1 - x0
+             const dy = y1 - y0
+             const lenSq = dx * dx + dy * dy
+             const radius = Math.sqrt(lenSq)
+
+             const char = isRightClick.current ? secondaryChar : brushChar
+             const useBg = !char || char === ' '
+             const frame = frames[activeFrameIndex]
+             const layer = frame?.layers.find(l => l.id === activeLayerId)
+
+             const cells: { x: number; y: number; color: string; char: string }[] = []
+
+             for (let y = minY; y <= maxY; y++) {
+               for (let x = minX; x <= maxX; x++) {
+                   if (!isPointInSelection(x, y)) continue
+                   
+                   let factor = 0
+                    if (lenSq === 0) {
+                        factor = 0
+                    } else if (gradientType === 'linear') {
+                        const px = x - x0
+                        const py = y - y0
+                        const dot = px * dx + py * dy
+                        factor = dot / lenSq
+                    } else {
+                        const dist = Math.sqrt((x - x0) ** 2 + (y - y0) ** 2)
+                        factor = dist / radius
+                    }
+
+                    factor = Math.max(0, Math.min(1, factor))
+                    const gradColor = interpolateColor(gradientColorStart, gradientColorEnd, factor)
+                    
+                    const current = layer?.data.get(`${x},${y}`)
+                    cells.push({
+                        x, y,
+                        color: gradColor, // Preview only shows color for now
+                        char: useBg ? (current?.char || '') : char
+                    })
+                }
+             }
+             setOverlayDraft({ type: 'gradient', dir: { x0, y0, x1, y1 }, cells })
+             return
+        }
+
         if (isOutOfBounds) return
 
-        if (activeTool === 'brush') {
+        if (activeTool === 'brush' || activeTool === 'eraser') {
             const char = isRightClick.current ? secondaryChar : brushChar
             const color = isRightClick.current ? secondaryColor : brushColor
-            
             const frame = frames[activeFrameIndex]
             const layer = frame?.layers.find(l => l.id === activeLayerId)
-            const current = layer?.data.get(`${pos.x},${pos.y}`)
+            const floatingActive = Boolean(floatingSelection && selection)
 
-            if (isPointInSelection(pos.x, pos.y)) {
-                setCell(pos.x, pos.y, { 
-                    char, 
-                    color,
-                    bgColor: current?.bgColor || ''
-                })
+            const from = lastDrawPos.current ?? pos
+            const points = getLinePoints(from.x, from.y, pos.x, pos.y)
+            const updates: { x: number; y: number; data: any }[] = []
+
+            points.forEach(p => {
+                if (!isInBounds(p.x, p.y)) return
+                if (!isPointInSelection(p.x, p.y)) return
+                if (activeTool === 'brush') {
+                    if (floatingActive) {
+                        updates.push({
+                            x: p.x,
+                            y: p.y,
+                            data: { char, color }
+                        })
+                    } else {
+                        const current = layer?.data.get(`${p.x},${p.y}`)
+                        updates.push({
+                            x: p.x,
+                            y: p.y,
+                            data: { char, color, bgColor: current?.bgColor || '' }
+                        })
+                    }
+                } else {
+                    updates.push({ x: p.x, y: p.y, data: { char: '', color: '', bgColor: '' } })
+                }
+            })
+
+            if (updates.length > 0) {
+                const applied = updateFloatingSelectionCells(updates)
+                if (!applied) {
+                    batchUpdateCells(updates)
+                }
             }
-        } else if (activeTool === 'eraser') {
-            if (isPointInSelection(pos.x, pos.y)) {
-                setCell(pos.x, pos.y, { char: '', color: '' })
-            }
+            lastDrawPos.current = { x: pos.x, y: pos.y }
         } else if (activeTool === 'eyedropper') {
             const frame = frames[activeFrameIndex]
             const layer = frame?.layers.find(l => l.id === activeLayerId)
@@ -1714,6 +1562,13 @@ export function CanvasRenderer() {
 
   const handleMouseUp = (e: React.MouseEvent) => {
     lastEventRef.current = e
+    if (activeTab === '3D') {
+      if (e.buttons !== 0) return
+      nav3DRef.current = null
+      return
+    }
+    lastDrawPos.current = null
+    const endPos = getMousePos(e)
     // If buttons are still pressed (e.g. switching from L+R to just L), don't stop dragging
     if (e.buttons !== 0) {
         isRightClick.current = (e.buttons & 2) === 2
@@ -1726,21 +1581,40 @@ export function CanvasRenderer() {
 
     setIsDragging(false)
     setTempMask(null)
+    setOverlayDraft(null)
     
     if (isMovingSelection) {
         // Stop moving, but KEEP floating selection active
         setIsMovingSelection(false)
+        const offset = selectionMoveOffsetRef.current
+        if ((offset.x !== 0 || offset.y !== 0) && selectionMask) {
+            const newMask = new Set<string>()
+            selectionMask.forEach(key => {
+                const [x, y] = key.split(',').map(Number)
+                newMask.add(`${x + offset.x},${y + offset.y}`)
+            })
+            setSelectionMask(newMask)
+        }
+        if ((offset.x !== 0 || offset.y !== 0) && selectionPath) {
+            const newPath = selectionPath.map(p => ({
+                x: p.x + offset.x,
+                y: p.y + offset.y
+            }))
+            setSelectionPath(newPath)
+        }
+        selectionMoveOffsetRef.current = { x: 0, y: 0 }
+        setSelectionMoveOffset({ x: 0, y: 0 })
         isRightClick.current = false
         return
     }
 
-    if ((activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand') && startPos && hoverPos) {
+    if ((activeTool === 'select' || activeTool === 'lasso' || activeTool === 'magicWand') && startPos) {
         if (activeTool === 'select') {
             // Finalize selection rect
-            const minX = Math.min(startPos.x, hoverPos.x)
-            const maxX = Math.max(startPos.x, hoverPos.x)
-            const minY = Math.min(startPos.y, hoverPos.y)
-            const maxY = Math.max(startPos.y, hoverPos.y)
+            const minX = Math.min(startPos.x, endPos.x)
+            const maxX = Math.max(startPos.x, endPos.x)
+            const minY = Math.min(startPos.y, endPos.y)
+            const maxY = Math.max(startPos.y, endPos.y)
             
             // Clip to grid
             const clippedMinX = Math.max(minX, -projectWidth/2)
@@ -1756,9 +1630,9 @@ export function CanvasRenderer() {
                     h: clippedMaxY - clippedMinY + 1
                 }
 
-                const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
-                                       (e.shiftKey ? 'add' : 
-                                       (e.altKey ? 'subtract' : 
+                const effectiveMode = (modifiers.shift && modifiers.alt) ? 'intersect' : 
+                                       (modifiers.shift ? 'add' : 
+                                       (modifiers.alt ? 'subtract' : 
                                        (e.ctrlKey ? 'new' : selectionMode)))
 
                 if (effectiveMode === 'new') {
@@ -1930,9 +1804,9 @@ export function CanvasRenderer() {
             }
 
             if (mask.size > 0) {
-                const effectiveMode = (e.shiftKey && e.altKey) ? 'intersect' : 
-                                       (e.shiftKey ? 'add' : 
-                                       (e.altKey ? 'subtract' : 
+            const effectiveMode = (modifiers.shift && modifiers.alt) ? 'intersect' : 
+                                       (modifiers.shift ? 'add' : 
+                                       (modifiers.alt ? 'subtract' : 
                                        (e.ctrlKey ? 'new' : selectionMode)))
 
                 if (effectiveMode === 'new') {
@@ -2000,6 +1874,12 @@ export function CanvasRenderer() {
 
     // Apply Shape Tools
     if ((activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'gradient') && startPos && hoverPos) {
+        const frame = frames[activeFrameIndex]
+        const layer = frame?.layers.find(l => l.id === activeLayerId)
+        if (!layer) {
+            setStartPos(null)
+            return
+        }
         saveSnapshot()
         const updates: {x: number, y: number, data: any}[] = []
 
@@ -2013,10 +1893,7 @@ export function CanvasRenderer() {
              const x1 = hoverPos.x
              const y1 = hoverPos.y
              
-             let minX = -projectWidth / 2
-             let maxX = projectWidth / 2 - 1
-             let minY = -projectHeight / 2
-             let maxY = projectHeight / 2 - 1
+             let { minX, maxX, minY, maxY } = getBounds()
 
              if (selection) {
                  minX = selection.x
@@ -2039,14 +1916,13 @@ export function CanvasRenderer() {
                    if (!isPointInSelection(x, y)) continue
                    
                    let factor = 0
-                    if (gradientType === 'linear') {
-                        if (lenSq === 0) factor = 0
-                        else {
-                            const px = x - x0
-                            const py = y - y0
-                            const dot = px * dx + py * dy
-                            factor = dot / lenSq
-                        }
+                    if (lenSq === 0) {
+                        factor = 0
+                    } else if (gradientType === 'linear') {
+                        const px = x - x0
+                        const py = y - y0
+                        const dot = px * dx + py * dy
+                        factor = dot / lenSq
                     } else {
                         const dist = Math.sqrt((x - x0) ** 2 + (y - y0) ** 2)
                         factor = dist / radius
@@ -2055,9 +1931,7 @@ export function CanvasRenderer() {
                     factor = Math.max(0, Math.min(1, factor))
                     const gradColor = interpolateColor(gradientColorStart, gradientColorEnd, factor)
                     
-                    const frame = frames[activeFrameIndex]
-                    const layer = frame?.layers.find(l => l.id === activeLayerId)
-                    const current = layer?.data.get(`${x},${y}`)
+                    const current = layer.data.get(`${x},${y}`)
 
                     updates.push({
                          x, y,
@@ -2083,8 +1957,7 @@ export function CanvasRenderer() {
             const layer = frame?.layers.find(l => l.id === activeLayerId)
 
             points.forEach(p => {
-                if (p.x < -projectWidth / 2 || p.x >= projectWidth / 2 || 
-                    p.y < -projectHeight / 2 || p.y >= projectHeight / 2) return
+                if (!isInBounds(p.x, p.y)) return
                 
                 if (!isPointInSelection(p.x, p.y)) return
 
@@ -2109,17 +1982,18 @@ export function CanvasRenderer() {
 
   return (
     <div 
-      className={styles.canvasContainer}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onContextMenu={(e) => e.preventDefault()}
+      className={`${styles.canvasContainer} ${mode === 'overlay' ? styles.overlayContainer : ''} ${className ?? ''}`}
+      style={{ pointerEvents: activeTab === '3D' ? 'none' : 'auto' }}
+      onMouseDown={activeTab === '3D' ? undefined : handleMouseDown}
+      onMouseMove={activeTab === '3D' ? undefined : handleMouseMove}
+      onMouseUp={activeTab === '3D' ? undefined : handleMouseUp}
+      onMouseLeave={activeTab === '3D' ? undefined : handleMouseUp}
+      onContextMenu={activeTab === '3D' ? undefined : (e) => e.preventDefault()}
       ref={containerRef}
     >
       <canvas 
         ref={canvasRef}
-        onWheel={handleWheel}
+        onWheel={activeTab === '3D' ? undefined : handleWheel}
       />
       <div className={styles.overlay}>
         {hoverPos && <span>X: {hoverPos.x} Y: {hoverPos.y}</span>}

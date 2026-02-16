@@ -50,6 +50,12 @@
       }
     }
 
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
     .mode-switcher {
       display: flex;
       gap: 8px;

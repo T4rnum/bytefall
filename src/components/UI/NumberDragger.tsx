@@ -7,6 +7,7 @@ interface NumberDraggerProps {
   min?: number
   max?: number
   step?: number
+  wheelStep?: number
   className?: string
   style?: React.CSSProperties
 }
@@ -17,6 +18,7 @@ export const NumberDragger: React.FC<NumberDraggerProps> = ({
   min = -Infinity,
   max = Infinity,
   step = 1,
+  wheelStep,
   className,
   style
 }) => {
@@ -100,7 +102,7 @@ export const NumberDragger: React.FC<NumberDraggerProps> = ({
   }
 
   const commitEdit = () => {
-    let val = parseInt(tempValue)
+    let val = parseFloat(tempValue)
     if (isNaN(val)) val = value
     val = Math.min(max, Math.max(min, val))
     onChange(val)
@@ -108,7 +110,7 @@ export const NumberDragger: React.FC<NumberDraggerProps> = ({
 
   const handleWheel = (e: React.WheelEvent) => {
     if (isEditing) return
-    const delta = -Math.sign(e.deltaY) * step
+    const delta = -Math.sign(e.deltaY) * (wheelStep ?? step)
     const newValue = Math.min(max, Math.max(min, value + delta))
     onChange(newValue)
   }
